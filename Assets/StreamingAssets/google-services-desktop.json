@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "268532889565",
+    "firebase_url": "https://test-c92d6-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "test-c92d6",
+    "storage_bucket": "test-c92d6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:268532889565:android:46f9faa1852d70a14de834",
+        "android_client_info": {
+          "package_name": "com.gg.test"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-k49ShuyvDBFhW9Iv1aj3GbpkYt3gDP4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
