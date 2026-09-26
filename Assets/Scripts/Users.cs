@@ -59,14 +59,21 @@ public class Room
 
     public string OldDoctorVote;
 
-    // Bu üç alan, gece/oylama sonucu ve oyun bitişi gibi bilgileri TÜM
-    // oyunculara (sadece host'un Debug.Log konsoluna değil) göstermek için
-    // Firebase üzerinden yazılır. GameStatusText bunları dinleyip ekrana basar.
-    public string LastNightMessage;
+    // Gece/oylama sonucu ve oyun bitişi gibi bilgileri TÜM oyunculara (sadece
+    // host'un Debug.Log konsoluna değil) göstermek için Firebase üzerinden
+    // yazılır. TEK bir alan olması bilinçli: her yeni olay bunun ÜZERİNE
+    // yazılır, böylece GameStatusText "hangi alan değişti" diye ayrı ayrı
+    // takip etmek zorunda kalmaz ve iki farklı olayın metni aynı olsa bile
+    // (örn. iki gece üst üste "kimse saldırıya uğramadı") ekran asla eski
+    // bir olayda takılı kalmaz.
+    public string LastEventMessage;
 
-    public string LastVoteMessage;
+    // Sunucu tarafından yazılan, TÜM cihazların aynı geri sayımı göstermesini
+    // sağlayan alanlar. PhaseStartTimeMillis, ServerValue.Timestamp ile
+    // (cihazın kendi saati değil, Firebase sunucusunun saatiyle) yazılır.
+    public double PhaseStartTimeMillis;
 
-    public string GameOverMessage;
+    public float PhaseDurationSeconds;
 
     public Room()
     {
@@ -84,11 +91,11 @@ public class Room
 
         SelectedDeadPlayer = null;
 
-        LastNightMessage = "";
+        LastEventMessage = "";
 
-        LastVoteMessage = "";
+        PhaseStartTimeMillis = 0;
 
-        GameOverMessage = "";
+        PhaseDurationSeconds = 0f;
     }
 }
 

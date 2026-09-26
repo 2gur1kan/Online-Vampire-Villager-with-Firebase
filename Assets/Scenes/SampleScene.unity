@@ -1910,8 +1910,7 @@ MonoBehaviour:
   phaseTitleText: {fileID: 339920212}
   playerButtonContainer: {fileID: 567704349}
   playerButtonPrefab: {fileID: 1127557960971382618, guid: 8e7a497f99903db40acbc9c7ca31435e, type: 3}
-  geciButton: {fileID: 1324597590}
-  panelOpenCountdown: 10
+  fallbackCountdown: 10
 --- !u!114 &886929719
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3135,7 +3134,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1324597589
 RectTransform:
   m_ObjectHideFlags: 0

@@ -22,6 +22,11 @@ public class FireBaseDataBase : MonoBehaviour
     private EventHandler<ValueChangedEventArgs> roomValueChangedHandler;
     private bool isListeningRoom;
 
+    // Firebase sunucusunun saati ile bu cihazın kendi saati arasındaki fark
+    // (ms). Bu sayede her cihaz, kendi yerel saatinden bağımsız olarak aynı
+    // "sunucu şu an" tahminini hesaplayabilir (bkz. GetServerNowMillis).
+    private double serverTimeOffsetMillis;
+
     private async void Awake()
     {
         if (Instance == null)
@@ -50,12 +55,57 @@ public class FireBaseDataBase : MonoBehaviour
             app.Options.DatabaseUrl = new Uri("https://test-c92d6-default-rtdb.firebaseio.com/");
             db = FirebaseDatabase.DefaultInstance.RootReference;
 
+            ListenServerTimeOffset();
+
             Debug.Log("<color=green>Firebase bağlantısı başarılı!</color>");
         }
         else
         {
             Debug.LogError($"Firebase bağımlılıkları çözülemedi: {status}");
         }
+    }
+
+    // =====================================================
+    // SUNUCU ZAMANI (TÜM CİHAZLARDA SENKRON GERİ SAYIM İÇİN)
+    // =====================================================
+
+    // Firebase'in ".info/serverTimeOffset" özel konumu, bu cihazın saatiyle
+    // sunucunun saati arasındaki farkı (ms) sürekli günceller. Ağ gecikmesi
+    // veya cihaz saati yanlış olsa bile, buradan hesaplanan "sunucu şu an"
+    // tüm cihazlarda aynı çıkar.
+    private void ListenServerTimeOffset()
+    {
+        FirebaseDatabase.DefaultInstance.GetReference(".info/serverTimeOffset").ValueChanged += (sender, args) =>
+        {
+            if (args.DatabaseError != null) return;
+
+            if (args.Snapshot.Exists && args.Snapshot.Value != null)
+            {
+                serverTimeOffsetMillis = Convert.ToDouble(args.Snapshot.Value);
+            }
+        };
+    }
+
+    // Bu cihazın tahmin ettiği, Firebase sunucusundaki şu anki zaman (ms,
+    // Unix epoch). VotePanel gibi UI'ler geri sayımı buna göre hesaplar.
+    public double GetServerNowMillis()
+    {
+        return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + serverTimeOffsetMillis;
+    }
+
+    // Bir fazın (vampir/doktor/köy oylaması) başlangıç anını SUNUCU
+    // saatiyle (ServerValue.Timestamp) ve süresini Room'a yazar. Böylece
+    // her cihaz, kendi Firebase güncellemesini ne zaman aldığından bağımsız
+    // olarak aynı bitiş anını hesaplar ve geri sayımlar senkron olur.
+    public void StartPhaseTimer(float durationSeconds)
+    {
+        var updates = new Dictionary<string, object>
+        {
+            { "PhaseStartTimeMillis", ServerValue.Timestamp },
+            { "PhaseDurationSeconds", durationSeconds }
+        };
+
+        db.Child("Rooms").Child(CurrentRoomID).UpdateChildrenAsync(updates);
     }
 
     // =====================================================
@@ -148,27 +198,72 @@ public class FireBaseDataBase : MonoBehaviour
     // bilgileri ayrıca Firebase'e yazıyoruz ki GameStatusText tüm cihazlarda
     // bunları okuyup ekrana basabilsin.
 
-    public void SetLastNightMessage(string message)
+    public void SetLastEventMessage(string message)
     {
-        db.Child("Rooms").Child(CurrentRoomID).Child("LastNightMessage").SetValueAsync(message ?? "");
+        db.Child("Rooms").Child(CurrentRoomID).Child("LastEventMessage").SetValueAsync(message ?? "");
     }
 
-    public void SetLastVoteMessage(string message)
-    {
-        db.Child("Rooms").Child(CurrentRoomID).Child("LastVoteMessage").SetValueAsync(message ?? "");
-    }
-
-    public void SetGameOverMessage(string message)
-    {
-        db.Child("Rooms").Child(CurrentRoomID).Child("GameOverMessage").SetValueAsync(message ?? "");
-    }
-
-    // Yeni bir oyun başlarken bir önceki oyundan kalan mesajları temizler.
+    // Yeni bir oyun başlarken bir önceki oyundan kalan mesajı temizler.
     public void ClearStatusMessages()
     {
-        SetLastNightMessage("");
-        SetLastVoteMessage("");
-        SetGameOverMessage("");
+        SetLastEventMessage("");
+    }
+
+    // =====================================================
+    // YENİ BİR OYUNA HAZIRLIK (AYNI ODADA TEKRAR BAŞLATMA)
+    // =====================================================
+    // Aynı odada "Oyunu Başlat" tekrar basılırsa, bir önceki oyundan kalan
+    // sistem botları ve ölü durumu birikmesin diye bu iki metot kullanılır.
+
+    // Odadaki tüm BOT oyuncuları siler (gerçek oyunculara dokunmaz). Yeni bir
+    // oyun başlarken önce bu çağrılıp, sonra taze botlar eklenmelidir; aksi
+    // halde her "Oyunu Başlat"ta eski botların üstüne bir set daha eklenir.
+    public async Task RemoveAllBotsAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentRoomID)) return;
+
+        DataSnapshot playersSnapshot = await db.Child("Rooms").Child(CurrentRoomID).Child("Players").GetValueAsync();
+
+        if (!playersSnapshot.Exists) return;
+
+        List<Task> removeTasks = new List<Task>();
+
+        foreach (var child in playersSnapshot.Children)
+        {
+            bool isBot = child.Child("IsBot").Value != null && Convert.ToBoolean(child.Child("IsBot").Value);
+
+            if (isBot)
+            {
+                removeTasks.Add(
+                    db.Child("Rooms").Child(CurrentRoomID).Child("Players").Child(child.Key).RemoveValueAsync()
+                );
+            }
+        }
+
+        await Task.WhenAll(removeTasks);
+    }
+
+    // Odadaki tüm (gerçek) oyuncuları tekrar "hayatta" yapar. Bir önceki
+    // oyunda ölen bir oyuncu, aynı odada yeni bir oyun başlayınca tekrar
+    // oynayabilsin diye bu, yeni oyun başında çağrılır.
+    public async Task ResetAllPlayersAliveAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentRoomID)) return;
+
+        DataSnapshot playersSnapshot = await db.Child("Rooms").Child(CurrentRoomID).Child("Players").GetValueAsync();
+
+        if (!playersSnapshot.Exists) return;
+
+        List<Task> updateTasks = new List<Task>();
+
+        foreach (var child in playersSnapshot.Children)
+        {
+            updateTasks.Add(
+                db.Child("Rooms").Child(CurrentRoomID).Child("Players").Child(child.Key).Child("IsAlive").SetValueAsync(true)
+            );
+        }
+
+        await Task.WhenAll(updateTasks);
     }
 
     // =====================================================
@@ -227,34 +322,38 @@ public class FireBaseDataBase : MonoBehaviour
           });
     }
 
-    public void ResetRoomVotes()
+    // ÖNEMLİ: Bu metot artık TAMAMEN beklenir (async Task). Eski sürüm
+    // arka planda (GetValueAsync().ContinueWith(...), beklenmeden) çalışıyordu;
+    // bu sıfırlama isteği bazen bir sonraki fazın oyları/bot oyları ATILDIKTAN
+    // SONRA tamamlanıp onları tekrar 0'a çekiyordu — "saldırı oluyor ama kimse
+    // ölmüyor" hatasının asıl sebebi buydu. GameManager artık bu Task
+    // tamamlanmadan bir sonraki faza geçmiyor.
+    public async Task ResetRoomVotesAsync()
     {
         if (string.IsNullOrEmpty(CurrentRoomID)) return;
 
-        db.Child("Rooms").Child(CurrentRoomID).Child("TotalVote").SetValueAsync(0);
-
-        db.Child("Rooms").Child(CurrentRoomID).Child("Players").GetValueAsync().ContinueWith(task =>
+        List<Task> resetTasks = new List<Task>
         {
-            if (task.IsCompleted && task.Result.Exists)
-            {
-                foreach (var child in task.Result.Children)
-                {
-                    db.Child("Rooms")
-                      .Child(CurrentRoomID)
-                      .Child("Players")
-                      .Child(child.Key)
-                      .Child("VoteCount")
-                      .SetValueAsync(0);
+            db.Child("Rooms").Child(CurrentRoomID).Child("TotalVote").SetValueAsync(0)
+        };
 
-                    db.Child("Rooms")
-                      .Child(CurrentRoomID)
-                      .Child("Players")
-                      .Child(child.Key)
-                      .Child("HasVotedThisPhase")
-                      .SetValueAsync(false);
-                }
+        DataSnapshot playersSnapshot = await db.Child("Rooms").Child(CurrentRoomID).Child("Players").GetValueAsync();
+
+        if (playersSnapshot.Exists)
+        {
+            foreach (var child in playersSnapshot.Children)
+            {
+                resetTasks.Add(
+                    db.Child("Rooms").Child(CurrentRoomID).Child("Players").Child(child.Key).Child("VoteCount").SetValueAsync(0)
+                );
+
+                resetTasks.Add(
+                    db.Child("Rooms").Child(CurrentRoomID).Child("Players").Child(child.Key).Child("HasVotedThisPhase").SetValueAsync(false)
+                );
             }
-        });
+        }
+
+        await Task.WhenAll(resetTasks);
     }
 
     // =====================================================
@@ -293,9 +392,15 @@ public class FireBaseDataBase : MonoBehaviour
         room.SelectedDeadPlayer = snapshot.Child("SelectedDeadPlayer").Value?.ToString();
         room.OldDoctorVote = snapshot.Child("OldDoctorVote").Value?.ToString();
 
-        room.LastNightMessage = snapshot.Child("LastNightMessage").Value?.ToString() ?? "";
-        room.LastVoteMessage = snapshot.Child("LastVoteMessage").Value?.ToString() ?? "";
-        room.GameOverMessage = snapshot.Child("GameOverMessage").Value?.ToString() ?? "";
+        room.LastEventMessage = snapshot.Child("LastEventMessage").Value?.ToString() ?? "";
+
+        room.PhaseStartTimeMillis = snapshot.Child("PhaseStartTimeMillis").Value == null
+            ? 0
+            : Convert.ToDouble(snapshot.Child("PhaseStartTimeMillis").Value);
+
+        room.PhaseDurationSeconds = snapshot.Child("PhaseDurationSeconds").Value == null
+            ? 0f
+            : Convert.ToSingle(snapshot.Child("PhaseDurationSeconds").Value);
 
         // Oyuncu Listesini Doldurma
         room.Players = new List<Users>();

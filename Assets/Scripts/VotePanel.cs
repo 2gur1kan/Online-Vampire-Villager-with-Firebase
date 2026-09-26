@@ -7,13 +7,21 @@ using TMPro;
 
 // Oylama panelini yönetir. HOST DAHİL HER CİHAZDA çalışır.
 //
-// AKIŞ: Panel açılır açılmaz seçenekler (hedef butonları ya da "Geç") HEMEN
-// görünür ve geri sayım eş zamanlı başlar. Bir seçim yapsak da (veya "Geç"e
-// bassak da) panel süre dolana kadar KAPANMAZ — sadece seçilen buton hariç
-// hepsi devre dışı kalır. Böylece dışarıdan bakan biri kimin ne zaman
-// seçim yaptığını göremez. Süre dolunca seçenekler tamamen kaybolur ve
-// panel kapanır; eğer o ana kadar hiç seçim yapılmadıysa otomatik olarak
-// "Geç" ile aynı şekilde işaretlenir (GameManager sonsuza kadar beklemesin diye).
+// SENKRON SÜRE: Geri sayım, bu cihazın kendi saatine değil, GameManager'ın
+// Room'a yazdığı SUNUCU zamanına (PhaseStartTimeMillis/PhaseDurationSeconds)
+// göre hesaplanır. Böylece ağ gecikmesi farklı olsa bile TÜM cihazlar aynı
+// gerçek ana kadar geri sayar.
+//
+// ANONİMLİK: Sıra bizde olsun ya da olmasın, ekranda HER ZAMAN aynı sayıda
+// ve aynı düzende buton görünür (aynı hedef havuzunun boyutu kadar). Sıra
+// bizdeyse butonlarda gerçek isimler yazar ve tıklayınca oy gönderir; sıra
+// bizde değilse HEPSİNDE "Geç" yazar ve hangisine basılırsa basılsın sadece
+// "işlemimizi yaptık" olarak işaretler. Böylece yan yana oturan biri, ekrana
+// bakarak kimin vampir/doktor olduğunu buton SAYISINDAN bile çıkaramaz.
+//
+// Panel süre dolmadan kapanmaz; bir seçim yapsak da butonlar sadece devre
+// dışı bırakılır, panel açık kalır. Süre dolunca hiç seçim yapılmadıysa
+// otomatik olarak "Geç" ile aynı şekilde işaretlenir.
 public class VotePanel : MonoBehaviour
 {
     [Header("Panel Referansları")]
@@ -24,10 +32,12 @@ public class VotePanel : MonoBehaviour
     [Header("Oyuncu Butonları")]
     [SerializeField] private Transform playerButtonContainer;
     [SerializeField] private Button playerButtonPrefab;
-    [SerializeField] private Button geciButton; // Sıra bizde değilken gösterilen "Geç" butonu
 
     [Header("Ayarlar")]
-    [SerializeField] private float panelOpenCountdown = 10f;
+    [Tooltip("Room'dan süre bilgisi henüz gelmediyse kullanılacak yedek süre.")]
+    [SerializeField] private float fallbackCountdown = 10f;
+
+    private const string PassButtonLabel = "Geç";
 
     private readonly List<Button> spawnedButtons = new List<Button>();
     private Coroutine countdownRoutine;
@@ -36,7 +46,6 @@ public class VotePanel : MonoBehaviour
     private void Start()
     {
         PlayerTurnController.Instance.OnPhaseChanged += OnPhaseChanged;
-        geciButton.onClick.AddListener(ResumeBTN);
         votePanelRoot.SetActive(false);
     }
 
@@ -71,7 +80,6 @@ public class VotePanel : MonoBehaviour
     {
         votePanelRoot.SetActive(true);
         hasActedThisPhase = false;
-        ClearPlayerButtons();
 
         if (phaseTitleText != null)
         {
@@ -79,7 +87,7 @@ public class VotePanel : MonoBehaviour
         }
 
         // Seçenekler geri sayımın SONUNU beklemeden, panel açılır açılmaz gösterilir.
-        ShowRelevantButtons();
+        ShowOptionButtons(state);
 
         if (countdownRoutine != null) StopCoroutine(countdownRoutine);
         countdownRoutine = StartCoroutine(CountdownRoutine());
@@ -96,11 +104,31 @@ public class VotePanel : MonoBehaviour
         }
     }
 
-    // Bu döngü artık sadece görsel geri sayımı ve sürenin SONUNDA seçeneklerin
+    // =====================================================
+    // SUNUCU SENKRONLU GERİ SAYIM
+    // =====================================================
+
+    private float ComputeRemainingSeconds()
+    {
+        Room room = PlayerTurnController.Instance.GetCurrentRoom();
+
+        if (room == null || room.PhaseDurationSeconds <= 0f)
+        {
+            return fallbackCountdown;
+        }
+
+        double serverNow = FireBaseDataBase.Instance.GetServerNowMillis();
+        double elapsedMillis = serverNow - room.PhaseStartTimeMillis;
+        float remaining = room.PhaseDurationSeconds - (float)(elapsedMillis / 1000.0);
+
+        return Mathf.Max(0f, remaining);
+    }
+
+    // Bu döngü sadece görsel geri sayımı ve sürenin SONUNDA seçeneklerin
     // kaybolup panelin kapanmasını yönetir; seçenekleri açmaz (onlar zaten açık).
     private IEnumerator CountdownRoutine()
     {
-        float timer = panelOpenCountdown;
+        float timer = ComputeRemainingSeconds();
 
         while (timer > 0f)
         {
@@ -119,7 +147,7 @@ public class VotePanel : MonoBehaviour
         }
 
         // Süre doldu: eğer bu fazda hiç seçim yapılmadıysa (ne hedef seçildi ne
-        // "Geç"e basıldı) otomatik olarak "Geç" ile aynı şekilde işaretle ki
+        // bir "Geç" butonuna basıldı) otomatik olarak aynı şekilde işaretle ki
         // GameManager sonsuza kadar bizi beklemesin.
         if (!hasActedThisPhase)
         {
@@ -134,33 +162,42 @@ public class VotePanel : MonoBehaviour
     // BUTON GÖSTERİMİ (ANONİMLİK MANTIĞI)
     // =====================================================
 
-    private void ShowRelevantButtons()
+    private void ShowOptionButtons(GameState state)
     {
+        ClearPlayerButtons();
+
         bool canAct = PlayerTurnController.Instance.CanActNow;
-
-        geciButton.gameObject.SetActive(!canAct);
-        geciButton.interactable = true;
-
-        if (!canAct) return;
 
         Room room = PlayerTurnController.Instance.GetCurrentRoom();
         Users localPlayer = PlayerTurnController.Instance.GetLocalPlayer();
 
         if (room == null || room.Players == null || localPlayer == null) return;
 
-        List<Users> targets = room.Players
+        List<Users> others = room.Players
             .Where(p => p.IsAlive && p.UserID != localPlayer.UserID)
             .ToList();
 
-        SetPlayerNameButtons(targets);
+        if (state == GameState.Voting)
+        {
+            // Köy oylamasında anonimlik gerekmez (herkes zaten oy kullanır);
+            // ama çekimser kalmak isteyenler için hedef butonlarının YANINA
+            // bir "Geç" butonu da ekleniyor.
+            SetPlayerNameButtons(others);
+            AddPassButton();
+        }
+        else if (canAct)
+        {
+            SetPlayerNameButtons(others);
+        }
+        else
+        {
+            SetPassButtons(others.Count);
+        }
     }
 
-    // Oyuncu isimlerinin yazdığı butonları dinamik olarak oluşturur ve tıklama
-    // olaylarını buradan atar; bu atama olmadan butonlar hiçbir şey yapmaz.
+    // Sıra bizdeyken: oyuncu isimlerinin yazdığı gerçek hedef butonları.
     private void SetPlayerNameButtons(List<Users> targets)
     {
-        ClearPlayerButtons();
-
         foreach (Users target in targets)
         {
             Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
@@ -169,6 +206,34 @@ public class VotePanel : MonoBehaviour
 
             string targetID = target.UserID; // closure için yerel kopya
             newButton.onClick.AddListener(() => OnPlayerButtonClicked(targetID));
+
+            spawnedButtons.Add(newButton);
+        }
+    }
+
+    private void AddPassButton()
+    {
+        Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
+        newButton.gameObject.SetActive(true);
+        newButton.GetComponentInChildren<TMP_Text>().text = PassButtonLabel;
+
+        newButton.onClick.AddListener(OnPassButtonClicked);
+
+        spawnedButtons.Add(newButton);
+    }
+
+    // Sıra bizde değilken: gerçek oyuncu sayısıyla AYNI sayıda buton, ama
+    // hepsinde "Geç" yazar. Ekranın görünümü, sıra kimdeyse onunkiyle birebir
+    // aynı kalır; hangi butona basılırsa basılsın sadece "geçildiğini" işaretler.
+    private void SetPassButtons(int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
+            newButton.gameObject.SetActive(true);
+            newButton.GetComponentInChildren<TMP_Text>().text = PassButtonLabel;
+
+            newButton.onClick.AddListener(OnPassButtonClicked);
 
             spawnedButtons.Add(newButton);
         }
@@ -186,16 +251,13 @@ public class VotePanel : MonoBehaviour
         SetButtonsInteractable(false);
     }
 
-    // "Geç" butonuna bağlanır. Gerçek bir hedefe oy içermez, ama GameManager'ın
-    // bizi beklemeyi bırakması için bu fazda "işlemimizi yaptığımızı" işaretler.
-    // Panel yine süre dolana kadar açık kalır.
-    public void ResumeBTN()
+    private void OnPassButtonClicked()
     {
         if (hasActedThisPhase) return;
         hasActedThisPhase = true;
 
         PlayerTurnController.Instance.MarkPhaseAcknowledged();
-        geciButton.interactable = false;
+        SetButtonsInteractable(false);
     }
 
     private void SetButtonsInteractable(bool interactable)

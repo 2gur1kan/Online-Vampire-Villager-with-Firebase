@@ -25,6 +25,14 @@ public class GameManager : MonoBehaviour
         "Ali", "Mehmet", "Ayşe", "Fatma", "Mustafa", "Gürkan"
     };
 
+    // Bu süreler hem VotePanel'in gösterdiği geri sayımı (StartPhaseTimer ile,
+    // sunucu saatine göre) hem de GameManager'ın gerçek oyuncuyu bekleme
+    // süresini (aşağıdaki güvenlik payı ile) belirler.
+    private const float VampireVoteDurationSeconds = 10f;
+    private const float DoctorVoteDurationSeconds = 10f;
+    private const float VillageVoteDurationSeconds = 30f;
+    private const float WaitSafetyBufferSeconds = 5f; // ağ gecikmesi için ekstra pay
+
     private FireBaseDataBase db;
     private Room currentRoom;
     private bool isHost;
@@ -84,6 +92,16 @@ public class GameManager : MonoBehaviour
     {
         db.StartListeningRoom();
         db.ClearStatusMessages();
+
+        // Aynı oda ikinci kez "Oyunu Başlat" ile kullanılıyor olabilir: önce
+        // bir önceki oyundan kalan botları temizle, gerçek oyuncuları tekrar
+        // hayatta yap, SONRA taze botları ekle. Bu sıra olmadan eski botların
+        // üstüne yeni bir set daha eklenir ve ölü oyuncular canlanmaz.
+        Task removeBotsTask = db.RemoveAllBotsAsync();
+        yield return new WaitUntil(() => removeBotsTask.IsCompleted);
+
+        Task reviveTask = db.ResetAllPlayersAliveAsync();
+        yield return new WaitUntil(() => reviveTask.IsCompleted);
 
         Task botsTask = SpawnSystemBotsAsync();
         yield return new WaitUntil(() => botsTask.IsCompleted);
@@ -218,20 +236,17 @@ public class GameManager : MonoBehaviour
             if (CheckGameOver()) break;
 
             // --- GECE FAZI BAŞLANGICI ---
-            db.ResetRoomVotes();
-            yield return new WaitForSeconds(1f);
+            yield return StartCoroutine(ResetVotesAndWait(1f));
 
             // 1. Rolleri Göster
             yield return StartCoroutine(RoleReveal());
 
             // 2. Gece: Vampir Fazı
-            db.ResetRoomVotes();
-            yield return new WaitForSeconds(0.5f);
+            yield return StartCoroutine(ResetVotesAndWait(0.5f));
             yield return StartCoroutine(VampireVotePhase());
 
             // 3. Gece: Doktor Fazı
-            db.ResetRoomVotes();
-            yield return new WaitForSeconds(0.5f);
+            yield return StartCoroutine(ResetVotesAndWait(0.5f));
             yield return StartCoroutine(DoctorVotePhase());
 
             // 4. Gündüz Fazı (Ölümler işlenir)
@@ -240,8 +255,7 @@ public class GameManager : MonoBehaviour
             if (CheckGameOver()) break;
 
             // --- GÜNDÜZ FAZI (KÖY OYLAMASI) ---
-            db.ResetRoomVotes();
-            yield return new WaitForSeconds(1f);
+            yield return StartCoroutine(ResetVotesAndWait(1f));
 
             // 5. Gündüz: Köy Oylaması
             yield return StartCoroutine(VotingPhase());
@@ -260,6 +274,21 @@ public class GameManager : MonoBehaviour
         isHost = false;
     }
 
+    // ResetRoomVotesAsync tamamlanmadan (yani sıfırlama Firebase'e gerçekten
+    // yazılmadan) bir sonraki faza asla geçmeyi sağlar. Bu olmadan, gecikmeli
+    // bir sıfırlama isteği az önce atılan oyların üzerine geç gelip onları
+    // sıfırlayabiliyordu ("saldırı oluyor ama kimse ölmüyor" hatası buydu).
+    private IEnumerator ResetVotesAndWait(float extraWaitSeconds)
+    {
+        Task resetTask = db.ResetRoomVotesAsync();
+        yield return new WaitUntil(() => resetTask.IsCompleted);
+
+        if (extraWaitSeconds > 0f)
+        {
+            yield return new WaitForSeconds(extraWaitSeconds);
+        }
+    }
+
     // =====================================================
     // FAZ COROUTINE'LERİ
     // =====================================================
@@ -268,13 +297,14 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("[FAZ] Gece çöktü / Roller hatırlatılıyor...");
         db.ChangeGameState(GameState.RoleReveal);
-        yield return new WaitForSeconds(2f);
+        yield return new WaitForSeconds(3f);
     }
 
     private IEnumerator VampireVotePhase()
     {
         Debug.Log("[FAZ] Gece: Vampirler oy veriyor...");
         db.ChangeGameState(GameState.VampireVote);
+        db.StartPhaseTimer(VampireVoteDurationSeconds);
 
         // State değişikliğinin dinleyiciye ulaşması için kısa bir yayılım payı.
         yield return new WaitForSeconds(0.3f);
@@ -297,7 +327,7 @@ public class GameManager : MonoBehaviour
         // bu fazda oy verene (ya da "Geç" ile işaretlenene) kadar bekler. Botların
         // oy vermesi bu bekleyişi asla tek başına bitirmez. Süre aşımı sadece
         // gerçek oyuncu hiç aksiyon almazsa oyunun kilitlenmemesi için bir güvenlik ağıdır.
-        float timeOut = 30f;
+        float timeOut = VampireVoteDurationSeconds + WaitSafetyBufferSeconds;
         float timer = 0f;
 
         while (timer < timeOut)
@@ -310,6 +340,12 @@ public class GameManager : MonoBehaviour
             timer += 0.5f;
             yield return new WaitForSeconds(0.5f);
         }
+
+        // "HasVotedThisPhase" işaretlenmesi ile VoteCount transaction'ının
+        // tamamlanması iki ayrı yazma işlemi; aradaki küçük gecikmeyi
+        // (transaction, düz bir yazmadan biraz daha yavaş olabilir) telafi
+        // etmek için oy sayımını okumadan önce kısa bir pay bırakıyoruz.
+        yield return new WaitForSeconds(1f);
 
         Users target = GetMostVotedPlayer();
 
@@ -330,6 +366,7 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("[FAZ] Gece: Doktor seçim yapıyor...");
         db.ChangeGameState(GameState.DoctorVote);
+        db.StartPhaseTimer(DoctorVoteDurationSeconds);
 
         yield return new WaitForSeconds(0.3f);
 
@@ -346,7 +383,7 @@ public class GameManager : MonoBehaviour
         // Bot doktor oy kullanır
         BotVoteFirebase(RoleType.Doctor);
 
-        float timeOut = 30f;
+        float timeOut = DoctorVoteDurationSeconds + WaitSafetyBufferSeconds;
         float timer = 0f;
 
         while (timer < timeOut)
@@ -359,6 +396,8 @@ public class GameManager : MonoBehaviour
             timer += 0.5f;
             yield return new WaitForSeconds(0.5f);
         }
+
+        yield return new WaitForSeconds(1f);
 
         Users savedPlayer = GetMostVotedPlayer();
 
@@ -394,13 +433,14 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("[FAZ] Gündüz: Köy oylaması başladı...");
         db.ChangeGameState(GameState.Voting);
+        db.StartPhaseTimer(VillageVoteDurationSeconds);
 
         yield return new WaitForSeconds(0.3f);
 
         // Sadece hayatta olan oyuncular oy kullanır
         BotVoteAllFirebase();
 
-        float timeOut = 30f;
+        float timeOut = VillageVoteDurationSeconds + WaitSafetyBufferSeconds;
         float timer = 0f;
 
         while (timer < timeOut)
@@ -432,13 +472,13 @@ public class GameManager : MonoBehaviour
 
             string executionMessage = $"{executedPlayer.UserName} köy kararıyla idam edildi!";
             Debug.Log($"<color=orange>[İDAM]</color> {executionMessage}");
-            db.SetLastVoteMessage(executionMessage);
+            db.SetLastEventMessage(executionMessage);
         }
         else
         {
             string noExecutionMessage = "Oylamada eşitlik oldu veya kimse seçilmedi. İdam yapılmadı.";
             Debug.Log($"[BİLGİ] {noExecutionMessage}");
-            db.SetLastVoteMessage(noExecutionMessage);
+            db.SetLastEventMessage(noExecutionMessage);
         }
 
         yield return new WaitForSeconds(3f);
@@ -459,7 +499,7 @@ public class GameManager : MonoBehaviour
             {
                 string savedMessage = "Doktor kurbanı kurtardı! Kimse ölmedi.";
                 Debug.Log($"<color=green>[GECE SONUCU]</color> {savedMessage}");
-                db.SetLastNightMessage(savedMessage);
+                db.SetLastEventMessage(savedMessage);
             }
             else
             {
@@ -468,7 +508,7 @@ public class GameManager : MonoBehaviour
 
                 string deathMessage = $"{victim?.UserName} gece saldırıya uğrayarak öldü.";
                 Debug.Log($"<color=red>[ÖLÜM]</color> {deathMessage}");
-                db.SetLastNightMessage(deathMessage);
+                db.SetLastEventMessage(deathMessage);
 
                 await Task.Delay(300);
             }
@@ -477,7 +517,7 @@ public class GameManager : MonoBehaviour
         {
             string noAttackMessage = "Gece kimse saldırıya uğramadı.";
             Debug.Log($"[GECE SONUCU] {noAttackMessage}");
-            db.SetLastNightMessage(noAttackMessage);
+            db.SetLastEventMessage(noAttackMessage);
         }
     }
 
@@ -494,7 +534,7 @@ public class GameManager : MonoBehaviour
         {
             string winMessage = "KÖYLÜLER KAZANDI!";
             Debug.Log($"<color=green>===============================\n{winMessage}\n===============================</color>");
-            db.SetGameOverMessage(winMessage);
+            db.SetLastEventMessage(winMessage);
             return true;
         }
 
@@ -502,7 +542,7 @@ public class GameManager : MonoBehaviour
         {
             string winMessage = "VAMPİRLER KAZANDI!";
             Debug.Log($"<color=red>===============================\n{winMessage}\n===============================</color>");
-            db.SetGameOverMessage(winMessage);
+            db.SetLastEventMessage(winMessage);
             return true;
         }
 
