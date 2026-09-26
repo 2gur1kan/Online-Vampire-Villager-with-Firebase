@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
-// Bu script HOST DAH�L HER C�HAZDA �al���r.
-// Oday� dinler, o an ki faza ve yerel oyuncunun rol�ne/hayatta olma durumuna g�re
-// "s�ra bende mi" bilgisini ��kar�r ve UI'nin ba�lanabilece�i event'ler yay�nlar.
-// Faz ilerletme, bot oylama gibi HOST i�leri burada YOKTUR (bkz. GameManager).
+// Bu script HOST DAHİL HER CİHAZDA çalışır.
+// Odayı dinler, o anki faza ve yerel oyuncunun rolüne/hayatta olma durumuna göre
+// "sıra bende mi" bilgisini çıkarır ve UI'nin bağlanabileceği event'ler yayınlar.
+// Faz ilerletme, bot oylama gibi HOST işleri burada YOKTUR (bkz. GameManager).
 public class PlayerTurnController : MonoBehaviour
 {
     public static PlayerTurnController Instance;
@@ -13,7 +15,7 @@ public class PlayerTurnController : MonoBehaviour
     private Room currentRoom;
     private Users localPlayer;
 
-    // UI taraf� bu event'lere abone olup ekran� g�nceller.
+    // UI tarafı bu event'lere abone olup ekranı günceller.
     public event Action<GameState> OnPhaseChanged;
     public event Action<bool> OnMyTurnChanged;
 
@@ -36,7 +38,7 @@ public class PlayerTurnController : MonoBehaviour
     {
         db = FireBaseDataBase.Instance;
         db.OnRoomChanged += OnRoomDataChanged;
-        db.StartListeningRoom(); // idempotent: host zaten ba�latm��sa tekrar bir �ey yapmaz.
+        db.StartListeningRoom(); // idempotent: host zaten başlatmışsa tekrar bir şey yapmaz.
     }
 
     private void OnDestroy()
@@ -48,7 +50,7 @@ public class PlayerTurnController : MonoBehaviour
     }
 
     // =====================================================
-    // F�REBASE VER� D�NLEME
+    // FIREBASE VERİ DİNLEME
     // =====================================================
 
     private void OnRoomDataChanged(Room room)
@@ -63,7 +65,7 @@ public class PlayerTurnController : MonoBehaviour
     }
 
     // =====================================================
-    // SIRA KONTROL�
+    // SIRA KONTROLÜ
     // =====================================================
 
     private void UpdateTurnState(GameState state)
@@ -83,7 +85,7 @@ public class PlayerTurnController : MonoBehaviour
                     break;
 
                 case GameState.Voting:
-                    canAct = true; // K�y oylamas�nda hayatta olan herkes oy verir.
+                    canAct = true; // Köy oylamasında hayatta olan herkes oy verir.
                     break;
             }
         }
@@ -95,38 +97,64 @@ public class PlayerTurnController : MonoBehaviour
     }
 
     // =====================================================
-    // OY G�NDERME
+    // OY GÖNDERME
     // =====================================================
 
-    // UI, oyuncu bir hedef se�ip onaylad���nda bunu �a��r�r.
+    // UI, oyuncu bir hedef seçip onayladığında bunu çağırır.
     public void SubmitVote(string targetPlayerID)
     {
         if (!CanActNow)
         {
-            Debug.LogWarning("<color=yellow>[UYARI]</color> S�ra sizde de�ilken oy verilemez.");
+            Debug.LogWarning("<color=yellow>[UYARI]</color> Sıra sizde değilken oy verilemez.");
             return;
         }
 
         if (string.IsNullOrEmpty(targetPlayerID))
         {
-            Debug.LogWarning("<color=yellow>[UYARI]</color> Ge�ersiz hedef, oy g�nderilmedi.");
+            Debug.LogWarning("<color=yellow>[UYARI]</color> Geçersiz hedef, oy gönderilmedi.");
             return;
         }
 
         db.VotePlayer(targetPlayerID);
+        db.MarkPlayerVoted(db.CurrentPlayerID);
 
-        // Ayn� turda tekrar oy vermeyi engelle (bir sonraki faz de�i�iminde tekrar de�erlendirilecek).
+        // Aynı turda tekrar oy vermeyi engelle (bir sonraki faz değişiminde tekrar değerlendirilecek).
         CanActNow = false;
         OnMyTurnChanged?.Invoke(false);
 
-        Debug.Log($"<color=cyan>[OY G�NDER�LD�]</color> Hedef: {targetPlayerID}");
+        Debug.Log($"<color=cyan>[OY GÖNDERİLDİ]</color> Hedef: {targetPlayerID}");
+    }
+
+    // Sıramız olmadığı bir fazda "Geç" butonuna basıldığında çağrılır. Gerçek bir
+    // hedefe oy içermez, sadece bu fazda bizden beklenen girdiyi verdiğimizi
+    // işaretler ki GameManager bizi beklemeyi bıraksın.
+    public void MarkPhaseAcknowledged()
+    {
+        db.MarkPlayerVoted(db.CurrentPlayerID);
     }
 
     // =====================================================
-    // UI ER��M YARDIMCILARI
+    // UI ERİŞİM YARDIMCILARI
     // =====================================================
 
     public Room GetCurrentRoom() => currentRoom;
 
     public Users GetLocalPlayer() => localPlayer;
+
+    // Vampirseniz, diğer hayattaki vampir müttefiklerinizin isimlerini döner
+    // (vampir değilseniz boş liste döner). RoleReveal fazında isteğe bağlı
+    // olarak bir UI metnine bağlayıp "Müttefikleriniz: ..." gibi gösterebilirsiniz.
+    public List<string> GetVampireAllyNames()
+    {
+        if (currentRoom == null || currentRoom.Players == null ||
+            localPlayer == null || localPlayer.Role != RoleType.Vampire)
+        {
+            return new List<string>();
+        }
+
+        return currentRoom.Players
+            .Where(p => p.Role == RoleType.Vampire && p.UserID != localPlayer.UserID)
+            .Select(p => p.UserName)
+            .ToList();
+    }
 }

@@ -5,17 +5,25 @@ using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 
-// �NEML� M�MAR� KURAL:
-// Bu script SADECE odan�n HOST'u taraf�ndan �al��t�r�lmal�d�r.
-// Host olmayan cihazlarda faz ilerletme, bot oylama ve kazanan hesaplama YAP�LMAMALI;
-// aksi halde her cihaz ayn� anda oday� y�netmeye �al���r ve veriler �at���r.
-// Host olmayan cihazlar sadece PlayerTurnController �zerinden oday� dinler ve s�ras� geldi�inde oy g�nderir.
+// ÖNEMLİ MİMARİ KURAL:
+// Bu script SADECE odanın HOST'u tarafından çalıştırılmalıdır.
+// Host olmayan cihazlarda faz ilerletme, bot oylama ve kazanan hesaplama
+// YAPILMAMALI; aksi halde her cihaz aynı anda odayı yönetmeye çalışır ve
+// veriler çatışır. Host olmayan cihazlar sadece PlayerTurnController
+// üzerinden odayı dinler ve sırası geldiğinde oy gönderir.
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance;
 
-    [Header("Test Ayarlar�")]
-    [SerializeField] private bool autoStartTestGameOnPlay = true;
+    [Header("Test Ayarları")]
+    [Tooltip("Açıksa, oyun sahneye başlarken kendi test odasını kurar. " +
+             "ConnectPanel üzerinden gerçek akışı test ederken bunu kapatın.")]
+    [SerializeField] private bool autoStartTestGameOnPlay = false;
+
+    private static readonly List<string> SystemBotNames = new List<string>
+    {
+        "Ali", "Mehmet", "Ayşe", "Fatma", "Mustafa", "Gürkan"
+    };
 
     private FireBaseDataBase db;
     private Room currentRoom;
@@ -53,34 +61,77 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // Firebase'den bir de�i�iklik geldi�inde �al���r. Art�k manuel GetRoomAsync d�ng�s�ne gerek yok;
-    // currentRoom her zaman burada g�ncel tutulur.
+    // Firebase'den bir değişiklik geldiğinde çalışır. Artık manuel GetRoomAsync
+    // döngüsüne gerek yok; currentRoom her zaman burada güncel tutulur.
     private void OnRoomDataChanged(Room room)
     {
         currentRoom = room;
     }
 
     // =====================================================
-    // TEST AK1I (SOLO TEST ���N HOST BOOTSTRAP)
+    // PANEL GİRİŞ NOKTASI (ConnectPanel.CreateRoomBTN buradan çağırır)
     // =====================================================
-    // Ger�ek lobi ak���nda bunun yerine: host "Oyunu Ba�lat" butonuna bast���nda
-    // BeginHostedGame() �a�r�l�r (oda ve ger�ek oyuncular zaten lobide olu�turulmu� olur).
+    // Oda zaten oluşturulmuş ve host bu odaya JoinRoom ile katılmış olmalı.
+    // Bu metot sadece sistem botlarını odaya ekler ve oyunu başlatır.
+
+    public void HostGameWithSystemBots()
+    {
+        isHost = true;
+        StartCoroutine(HostGameWithSystemBotsRoutine());
+    }
+
+    private IEnumerator HostGameWithSystemBotsRoutine()
+    {
+        db.StartListeningRoom();
+        db.ClearStatusMessages();
+
+        Task botsTask = SpawnSystemBotsAsync();
+        yield return new WaitUntil(() => botsTask.IsCompleted);
+
+        yield return StartCoroutine(BeginHostedGame());
+    }
+
+    private async Task SpawnSystemBotsAsync()
+    {
+        foreach (string name in SystemBotNames)
+        {
+            Users bot = new Users
+            {
+                UserID = Guid.NewGuid().ToString(),
+                UserName = name,
+                Role = RoleType.Villager,
+                IsAlive = true,
+                VoteCount = 0,
+                IsHost = false,
+                IsBot = true
+            };
+
+            db.CreatePlayerInRoom(bot);
+            await Task.Delay(200);
+        }
+
+        Debug.Log("Sistem botları odaya eklendi.");
+    }
+
+    // =====================================================
+    // TEST AKIŞI (UI OLMADAN SOLO TEST İÇİN)
+    // =====================================================
 
     private IEnumerator StartTestGameRoutine()
     {
         yield return new WaitForSeconds(1.5f);
 
-        Debug.Log("--- OYUN BA�LATILIYOR (F�REBASE OTOMAT�K TEST) ---");
+        Debug.Log("--- OYUN BAŞLATILIYOR (FIREBASE OTOMATİK TEST) ---");
 
-        isHost = true; // Bu cihaz test odas�n� olu�turdu�u i�in host'tur.
+        isHost = true; // Bu cihaz test odasını oluşturduğu için host'tur.
 
         CreateTestRoom();
         db.StartListeningRoom();
 
-        Task testPlayersTask = TestPlayersAsync();
-        yield return new WaitUntil(() => testPlayersTask.IsCompleted);
+        Task botsTask = SpawnSystemBotsAsync();
+        yield return new WaitUntil(() => botsTask.IsCompleted);
 
-        StartCoroutine(BeginHostedGame());
+        yield return StartCoroutine(BeginHostedGame());
     }
 
     private void CreateTestRoom()
@@ -98,38 +149,15 @@ public class GameManager : MonoBehaviour
         db.CreateRoom(room);
     }
 
-    private async Task TestPlayersAsync()
-    {
-        List<string> testNames = new List<string> { "Ali", "Mehmet", "Ay�e", "Fatma", "Mustafa", "Gurkan" };
-
-        foreach (string name in testNames)
-        {
-            Users p = new Users
-            {
-                UserID = Guid.NewGuid().ToString(),
-                UserName = name,
-                Role = RoleType.Villager,
-                IsAlive = true,
-                VoteCount = 0,
-                IsHost = false
-            };
-
-            db.JoinRoom("ROOM_TEST_1", p);
-            await Task.Delay(200);
-        }
-
-        Debug.Log("T�m test oyuncular� Firebase'e eklendi.");
-    }
-
     // =====================================================
-    // HOST OYUN BA�LATMA
+    // HOST OYUN BAŞLATMA
     // =====================================================
 
     public IEnumerator BeginHostedGame()
     {
         if (!isHost)
         {
-            Debug.LogWarning("<color=yellow>[UYARI]</color> BeginHostedGame sadece host taraf�ndan �a�r�lmal�d�r.");
+            Debug.LogWarning("<color=yellow>[UYARI]</color> BeginHostedGame sadece host tarafından çağrılmalıdır.");
             yield break;
         }
 
@@ -141,14 +169,14 @@ public class GameManager : MonoBehaviour
 
     private async Task AssignRoles()
     {
-        // Rolleri da��tmadan �nce tek seferlik kesin bir veri �eki�i (d�ng� de�il, tek ��a��r�).
+        // Rolleri dağıtmadan önce tek seferlik kesin bir veri çekişi (döngü değil, tek çağrı).
         currentRoom = await db.GetRoomAsync();
 
         List<Users> players = currentRoom?.Players;
 
         if (players == null || players.Count == 0)
         {
-            Debug.LogError("Oyuncu listesi bo�, roller da��t�lamad�!");
+            Debug.LogError("Oyuncu listesi boş, roller dağıtılamadı!");
             return;
         }
 
@@ -174,97 +202,111 @@ public class GameManager : MonoBehaviour
         await Task.Delay(500);
         currentRoom = await db.GetRoomAsync();
 
-        Debug.Log("--- F�REBASE OYUNCU ROLLER� ---");
+        Debug.Log("--- FIREBASE OYUNCU ROLLERİ ---");
         PrintPlayers();
     }
 
     // =====================================================
-    // OYUN AKI� D�NG�S� (GAME LOOP)
+    // OYUN AKIŞ DÖNGÜSÜ (GAME LOOP)
     // =====================================================
 
     private IEnumerator GameLoop()
     {
         while (true)
         {
-            // currentRoom, OnRoomDataChanged arac�l���yla zaten g�ncel; ekstra �eki� yok.
+            // currentRoom, OnRoomDataChanged aracılığıyla zaten güncel; ekstra çekiş yok.
             if (CheckGameOver()) break;
 
-            // --- GECE FAZI BA�LANGICI ---
+            // --- GECE FAZI BAŞLANGICI ---
             db.ResetRoomVotes();
             yield return new WaitForSeconds(1f);
 
-            // 1. Rolleri G�ster
+            // 1. Rolleri Göster
             yield return StartCoroutine(RoleReveal());
 
-            // 2. Gece: Vampir Faz�
+            // 2. Gece: Vampir Fazı
             db.ResetRoomVotes();
             yield return new WaitForSeconds(0.5f);
             yield return StartCoroutine(VampireVotePhase());
 
-            // 3. Gece: Doktor Faz�
+            // 3. Gece: Doktor Fazı
             db.ResetRoomVotes();
             yield return new WaitForSeconds(0.5f);
             yield return StartCoroutine(DoctorVotePhase());
 
-            // 4. G�nd�z Faz� (�l�mler ��lenir)
+            // 4. Gündüz Fazı (Ölümler işlenir)
             yield return StartCoroutine(DayPhase());
 
             if (CheckGameOver()) break;
 
-            // --- G�ND�Z FAZI (K�Y OYLAMASI) ---
+            // --- GÜNDÜZ FAZI (KÖY OYLAMASI) ---
             db.ResetRoomVotes();
             yield return new WaitForSeconds(1f);
 
-            // 5. G�nd�z: K�y Oylamas�
+            // 5. Gündüz: Köy Oylaması
             yield return StartCoroutine(VotingPhase());
 
-            // 6. Oylama Sonu�lar� (�dam)
+            // 6. Oylama Sonuçları (İdam)
             yield return StartCoroutine(ResultPhase());
         }
 
-        Debug.Log("<color=cyan>[OYUN B�TT�] Kazanan Taraf Belirlendi!</color>");
+        Debug.Log("<color=cyan>[OYUN BİTTİ] Kazanan Taraf Belirlendi!</color>");
+
+        // Yerel bir C# event yerine Firebase'e yazıyoruz: OnGameEnded gibi bir
+        // event SADECE bu (host) cihazda tetiklenirdi, misafir cihazlar hiç
+        // haberdar olmazdı. GameState.EndGame ise herkesin zaten dinlediği
+        // OnRoomChanged/OnPhaseChanged üzerinden TÜM cihazlara ulaşır.
+        db.ChangeGameState(GameState.EndGame);
+        isHost = false;
     }
 
     // =====================================================
-    // FAZ COROUTINE'LER�
+    // FAZ COROUTINE'LERİ
     // =====================================================
 
     private IEnumerator RoleReveal()
     {
-        Debug.Log("[FAZ] Gece ��kt� / Roller Hat�rlat�l�yor...");
+        Debug.Log("[FAZ] Gece çöktü / Roller hatırlatılıyor...");
         db.ChangeGameState(GameState.RoleReveal);
         yield return new WaitForSeconds(2f);
     }
 
     private IEnumerator VampireVotePhase()
     {
-        Debug.Log("[FAZ] Gece: Vampirler Oy Veriyor...");
+        Debug.Log("[FAZ] Gece: Vampirler oy veriyor...");
         db.ChangeGameState(GameState.VampireVote);
 
-        // State de�i�ikli�inin dinleyiciye ula�mas� i�in k�sa bir yay�l�m payı.
+        // State değişikliğinin dinleyiciye ulaşması için kısa bir yayılım payı.
         yield return new WaitForSeconds(0.3f);
 
         var aliveVampires = currentRoom.Players.Where(p => p.Role == RoleType.Vampire && p.IsAlive).ToList();
 
         if (aliveVampires.Count == 0)
         {
-            Debug.Log("<color=yellow>[B�LG�] Hayatta Vampir kalmad��� i�in Vampir Faz� atlan�yor.</color>");
+            Debug.Log("<color=yellow>[BİLGİ] Hayatta vampir kalmadığı için vampir fazı atlanıyor.</color>");
             db.SetSelectedDeadPlayer("");
             yield return new WaitForSeconds(1f);
             yield break;
         }
 
-        // Bot Oy Kullan�r (Sadece hayatta olan vampirler, hayatta olan hedeflere)
+        // Bot oy kullanır (sadece hayatta olan vampirler, hayatta olan hedeflere)
         BotVoteFirebase(RoleType.Vampire);
 
-        // Ger�ek oyuncular kendi cihazlar�nda PlayerTurnController.SubmitVote �a��racak;
-        // burada sadece oylar�n toplanmas�n� bekliyoruz (polling de�il, cache kontrol�).
-        float timeOut = 5f;
+        // Gerçek oyuncular kendi cihazlarında PlayerTurnController.SubmitVote çağıracak;
+        // GameManager sadece hayattaki VAMPİR olan ve BOT OLMAYAN oyuncuların hepsi
+        // bu fazda oy verene (ya da "Geç" ile işaretlenene) kadar bekler. Botların
+        // oy vermesi bu bekleyişi asla tek başına bitirmez. Süre aşımı sadece
+        // gerçek oyuncu hiç aksiyon almazsa oyunun kilitlenmemesi için bir güvenlik ağıdır.
+        float timeOut = 30f;
         float timer = 0f;
 
         while (timer < timeOut)
         {
-            if (currentRoom.TotalVote >= aliveVampires.Count) break;
+            var freshAliveVampires = currentRoom.Players.Where(p => p.Role == RoleType.Vampire && p.IsAlive).ToList();
+            bool allRealVotersDone = freshAliveVampires.Where(p => !p.IsBot).All(p => p.HasVotedThisPhase);
+
+            if (allRealVotersDone) break;
+
             timer += 0.5f;
             yield return new WaitForSeconds(0.5f);
         }
@@ -274,7 +316,7 @@ public class GameManager : MonoBehaviour
         if (target != null)
         {
             db.SetSelectedDeadPlayer(target.UserID);
-            Debug.Log($"<color=red>[VAMP�R SE��M�]</color> {target.UserName} kurban olarak se�ildi.");
+            Debug.Log($"<color=red>[VAMPİR SEÇİMİ]</color> {target.UserName} kurban olarak seçildi.");
         }
         else
         {
@@ -286,7 +328,7 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator DoctorVotePhase()
     {
-        Debug.Log("[FAZ] Gece: Doktor Se�im Yap�yor...");
+        Debug.Log("[FAZ] Gece: Doktor seçim yapıyor...");
         db.ChangeGameState(GameState.DoctorVote);
 
         yield return new WaitForSeconds(0.3f);
@@ -295,21 +337,25 @@ public class GameManager : MonoBehaviour
 
         if (aliveDoctors.Count == 0)
         {
-            Debug.Log("<color=yellow>[B�LG�] Hayatta Doktor kalmad��� i�in Doktor Faz� atlan�yor.</color>");
+            Debug.Log("<color=yellow>[BİLGİ] Hayatta doktor kalmadığı için doktor fazı atlanıyor.</color>");
             db.SetOldDoctorVote("");
             yield return new WaitForSeconds(1f);
             yield break;
         }
 
-        // Bot Doktor Oy Kullan�r
+        // Bot doktor oy kullanır
         BotVoteFirebase(RoleType.Doctor);
 
-        float timeOut = 5f;
+        float timeOut = 30f;
         float timer = 0f;
 
         while (timer < timeOut)
         {
-            if (currentRoom.TotalVote >= aliveDoctors.Count) break;
+            var freshAliveDoctors = currentRoom.Players.Where(p => p.Role == RoleType.Doctor && p.IsAlive).ToList();
+            bool allRealVotersDone = freshAliveDoctors.Where(p => !p.IsBot).All(p => p.HasVotedThisPhase);
+
+            if (allRealVotersDone) break;
+
             timer += 0.5f;
             yield return new WaitForSeconds(0.5f);
         }
@@ -319,7 +365,7 @@ public class GameManager : MonoBehaviour
         if (savedPlayer != null)
         {
             db.SetOldDoctorVote(savedPlayer.UserID);
-            Debug.Log($"<color=green>[DOKTOR KORUMASI]</color> {savedPlayer.UserName} bu gece koruma alt�na al�nd�.");
+            Debug.Log($"<color=green>[DOKTOR KORUMASI]</color> {savedPlayer.UserName} bu gece koruma altına alındı.");
         }
         else
         {
@@ -331,7 +377,7 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator DayPhase()
     {
-        Debug.Log("[FAZ] G�nd�z Oldu! Gece Raporu ��leniyor...");
+        Debug.Log("[FAZ] Gündüz oldu! Gece raporu işleniyor...");
         db.ChangeGameState(GameState.Day);
 
         yield return new WaitForSeconds(0.3f);
@@ -339,29 +385,31 @@ public class GameManager : MonoBehaviour
         Task applyTask = ApplyDeathsAsync();
         yield return new WaitUntil(() => applyTask.IsCompleted);
 
-        // Yazd���m�z de�i�iklik dinleyiciye ula�s�n diye k�sa bir bekleme.
+        // Yazdığımız değişiklik dinleyiciye ulaşsın diye kısa bir bekleme.
         yield return new WaitForSeconds(0.5f);
         yield return new WaitForSeconds(3f);
     }
 
     private IEnumerator VotingPhase()
     {
-        Debug.Log("[FAZ] G�nd�z: K�y Oylamas� Ba�lad�...");
+        Debug.Log("[FAZ] Gündüz: Köy oylaması başladı...");
         db.ChangeGameState(GameState.Voting);
 
         yield return new WaitForSeconds(0.3f);
 
-        // SADECE HAYATTA OLAN OYUNCULAR OY KULLANIR
+        // Sadece hayatta olan oyuncular oy kullanır
         BotVoteAllFirebase();
 
-        int aliveCount = currentRoom.Players.Count(p => p.IsAlive);
-
-        float timeOut = 7f;
+        float timeOut = 30f;
         float timer = 0f;
 
         while (timer < timeOut)
         {
-            if (currentRoom.TotalVote >= aliveCount) break;
+            var freshAlivePlayers = currentRoom.Players.Where(p => p.IsAlive).ToList();
+            bool allRealVotersDone = freshAlivePlayers.Where(p => !p.IsBot).All(p => p.HasVotedThisPhase);
+
+            if (allRealVotersDone) break;
+
             timer += 0.5f;
             yield return new WaitForSeconds(0.5f);
         }
@@ -371,7 +419,7 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator ResultPhase()
     {
-        Debug.Log("[FAZ] Oylama Sonu�lar� A��klan�yor...");
+        Debug.Log("[FAZ] Oylama sonuçları açıklanıyor...");
         db.ChangeGameState(GameState.Result);
 
         yield return new WaitForSeconds(0.3f);
@@ -381,11 +429,16 @@ public class GameManager : MonoBehaviour
         if (executedPlayer != null)
         {
             db.SetPlayerAlive(executedPlayer.UserID, false);
-            Debug.Log($"<color=orange>[�DAM]</color> {executedPlayer.UserName} k�y karar�yla idam edildi!");
+
+            string executionMessage = $"{executedPlayer.UserName} köy kararıyla idam edildi!";
+            Debug.Log($"<color=orange>[İDAM]</color> {executionMessage}");
+            db.SetLastVoteMessage(executionMessage);
         }
         else
         {
-            Debug.Log("[B�LG�] Oylamada e�itlik oldu veya kimse se�ilmedi. �dam yap�lmad�.");
+            string noExecutionMessage = "Oylamada eşitlik oldu veya kimse seçilmedi. İdam yapılmadı.";
+            Debug.Log($"[BİLGİ] {noExecutionMessage}");
+            db.SetLastVoteMessage(noExecutionMessage);
         }
 
         yield return new WaitForSeconds(3f);
@@ -404,19 +457,27 @@ public class GameManager : MonoBehaviour
         {
             if (deadID == doctorID)
             {
-                Debug.Log("<color=green>[GECE SONUCU]</color> Doktor kurban� kurtard�! Kimse �lmedi.");
+                string savedMessage = "Doktor kurbanı kurtardı! Kimse ölmedi.";
+                Debug.Log($"<color=green>[GECE SONUCU]</color> {savedMessage}");
+                db.SetLastNightMessage(savedMessage);
             }
             else
             {
                 db.SetPlayerAlive(deadID, false);
                 Users victim = currentRoom.Players.FirstOrDefault(p => p.UserID == deadID);
-                Debug.Log($"<color=red>[�L�M]</color> {victim?.UserName} gece sald�r�ya u�rayarak �ld�.");
+
+                string deathMessage = $"{victim?.UserName} gece saldırıya uğrayarak öldü.";
+                Debug.Log($"<color=red>[ÖLÜM]</color> {deathMessage}");
+                db.SetLastNightMessage(deathMessage);
+
                 await Task.Delay(300);
             }
         }
         else
         {
-            Debug.Log("[GECE SONUCU] Gece kimse sald�r�ya u�ramad�.");
+            string noAttackMessage = "Gece kimse saldırıya uğramadı.";
+            Debug.Log($"[GECE SONUCU] {noAttackMessage}");
+            db.SetLastNightMessage(noAttackMessage);
         }
     }
 
@@ -427,17 +488,21 @@ public class GameManager : MonoBehaviour
         int aliveVampires = currentRoom.Players.Count(p => p.Role == RoleType.Vampire && p.IsAlive);
         int aliveInnocents = currentRoom.Players.Count(p => p.Role != RoleType.Vampire && p.IsAlive);
 
-        Debug.Log($"[DURUM KONTROL�] Hayatta Vampir: {aliveVampires} | Hayatta Masum: {aliveInnocents}");
+        Debug.Log($"[DURUM KONTROLÜ] Hayatta vampir: {aliveVampires} | Hayatta masum: {aliveInnocents}");
 
         if (aliveVampires == 0)
         {
-            Debug.Log("<color=green>===============================\nK�YL�LER KAZANDI!\n===============================</color>");
+            string winMessage = "KÖYLÜLER KAZANDI!";
+            Debug.Log($"<color=green>===============================\n{winMessage}\n===============================</color>");
+            db.SetGameOverMessage(winMessage);
             return true;
         }
 
         if (aliveVampires >= aliveInnocents)
         {
-            Debug.Log("<color=red>===============================\nVAMP�RLER KAZANDI!\n===============================</color>");
+            string winMessage = "VAMPİRLER KAZANDI!";
+            Debug.Log($"<color=red>===============================\n{winMessage}\n===============================</color>");
+            db.SetGameOverMessage(winMessage);
             return true;
         }
 
@@ -455,7 +520,7 @@ public class GameManager : MonoBehaviour
 
         if (candidates.Count == 0) return null;
 
-        // E�itlik kontrol� (En �ok oyu alan 2 ki�i e�it oy ald�ysa kimse se�ilmez)
+        // Eşitlik kontrolü (en çok oyu alan 2 kişi eşit oy aldıysa kimse seçilmez)
         if (candidates.Count > 1 && candidates[0].VoteCount == candidates[1].VoteCount)
         {
             return null;
@@ -474,7 +539,7 @@ public class GameManager : MonoBehaviour
     }
 
     // =====================================================
-    // BOT S�M�LASYON METODLARI (SADECE TEST ���N)
+    // BOT SİMÜLASYON METODLARI (SADECE TEST İÇİN)
     // =====================================================
 
     private void BotVoteFirebase(RoleType role)
@@ -504,7 +569,7 @@ public class GameManager : MonoBehaviour
 
             Users target = validTargets[UnityEngine.Random.Range(0, validTargets.Count)];
             db.VotePlayer(target.UserID);
-            Debug.Log($"[BOT OY] ({voter.Role}) {voter.UserName} -> {target.UserName} ki�isine oy verdi.");
+            Debug.Log($"[BOT OY] ({voter.Role}) {voter.UserName} -> {target.UserName} kişisine oy verdi.");
         }
     }
 
@@ -518,7 +583,7 @@ public class GameManager : MonoBehaviour
         {
             Users target = alivePlayers[UnityEngine.Random.Range(0, alivePlayers.Count)];
             db.VotePlayer(target.UserID);
-            Debug.Log($"[BOT K�Y OYU] {p.UserName} -> {target.UserName} ki�isine oy verdi.");
+            Debug.Log($"[BOT KÖY OYU] {p.UserName} -> {target.UserName} kişisine oy verdi.");
         }
     }
 }

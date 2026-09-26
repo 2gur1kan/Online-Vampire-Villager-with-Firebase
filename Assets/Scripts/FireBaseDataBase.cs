@@ -15,8 +15,8 @@ public class FireBaseDataBase : MonoBehaviour
     public string CurrentRoomID;
     public string CurrentPlayerID;
 
-    // Oda de�i�ti�inde (state, oyuncular, oylar...) t�m dinleyicilere haber verir.
-    // Birden fazla script (GameManager + PlayerTurnController) ayn� anda dinleyebilir.
+    // Oda değiştiğinde (state, oyuncular, oylar) tüm dinleyicilere haber verir.
+    // Birden fazla script (GameManager + PlayerTurnController) aynı anda dinleyebilir.
     public event Action<Room> OnRoomChanged;
 
     private EventHandler<ValueChangedEventArgs> roomValueChangedHandler;
@@ -50,16 +50,16 @@ public class FireBaseDataBase : MonoBehaviour
             app.Options.DatabaseUrl = new Uri("https://test-c92d6-default-rtdb.firebaseio.com/");
             db = FirebaseDatabase.DefaultInstance.RootReference;
 
-            Debug.Log("<color=green>Firebase Ba�lant�s� Ba�ar�l�!</color>");
+            Debug.Log("<color=green>Firebase bağlantısı başarılı!</color>");
         }
         else
         {
-            Debug.LogError($"Firebase ba��ml�l�klar� ��z�lemedi: {status}");
+            Debug.LogError($"Firebase bağımlılıkları çözülemedi: {status}");
         }
     }
 
     // =====================================================
-    // ODA & OYUNCU OLU�TURMA ��LEMLER�
+    // ODA & OYUNCU OLUŞTURMA İŞLEMLERİ
     // =====================================================
 
     public void CreateRoom(Room roomObj)
@@ -83,17 +83,17 @@ public class FireBaseDataBase : MonoBehaviour
 
         playerRef.SetRawJsonValueAsync(JsonUtility.ToJson(player));
 
-        // OYUNCU PRESENCE: Cihaz aniden ba�lant�y� keserse (��k��, �rt d���n uygulama kapanmas�,
-        // a� kopmas�) bu i�lem client taraf�nda �al��mayaca�� i�in Firebase sunucusuna
-        // "bu client koparsa oyuncuyu sil" talimat�n� �nceden veriyoruz. B�ylece oda listesi
-        // her zaman ger�ekten ba�l� oyuncular� yans�t�r.
+        // OYUNCU PRESENCE: Cihaz aniden bağlantıyı keserse (uygulamanın kapanması,
+        // ağ kopması vb.) bu işlem client tarafında çalışmayacağı için Firebase
+        // sunucusuna "bu client koparsa oyuncuyu sil" talimatını önceden veriyoruz.
+        // Böylece oda listesi her zaman gerçekten bağlı oyuncuları yansıtır.
         playerRef.OnDisconnect().RemoveValue();
 
-        Debug.Log($"Oyuncu Eklendi: {player.UserName} ({player.UserID})");
+        Debug.Log($"Oyuncu eklendi: {player.UserName} ({player.UserID})");
     }
 
     // =====================================================
-    // OYUN DURUMU VE VER� G�NCELLEME METODLARI
+    // OYUN DURUMU VE VERİ GÜNCELLEME METODLARI
     // =====================================================
 
     public void ChangeGameState(GameState gs)
@@ -141,7 +141,38 @@ public class FireBaseDataBase : MonoBehaviour
     }
 
     // =====================================================
-    // OYLAMA ��LEMLER� (TRANSACTION)
+    // OYUNCULARA GÖSTERİLECEK DURUM MESAJLARI
+    // =====================================================
+    // Debug.Log SADECE host'un Unity konsolunda görünür; oyuncular hiçbir
+    // build'de bunu göremez. Bu yüzden gece/oylama sonucu ve oyun bitişi gibi
+    // bilgileri ayrıca Firebase'e yazıyoruz ki GameStatusText tüm cihazlarda
+    // bunları okuyup ekrana basabilsin.
+
+    public void SetLastNightMessage(string message)
+    {
+        db.Child("Rooms").Child(CurrentRoomID).Child("LastNightMessage").SetValueAsync(message ?? "");
+    }
+
+    public void SetLastVoteMessage(string message)
+    {
+        db.Child("Rooms").Child(CurrentRoomID).Child("LastVoteMessage").SetValueAsync(message ?? "");
+    }
+
+    public void SetGameOverMessage(string message)
+    {
+        db.Child("Rooms").Child(CurrentRoomID).Child("GameOverMessage").SetValueAsync(message ?? "");
+    }
+
+    // Yeni bir oyun başlarken bir önceki oyundan kalan mesajları temizler.
+    public void ClearStatusMessages()
+    {
+        SetLastNightMessage("");
+        SetLastVoteMessage("");
+        SetGameOverMessage("");
+    }
+
+    // =====================================================
+    // OYLAMA İŞLEMLERİ (TRANSACTION)
     // =====================================================
 
     public void VotePlayer(string playerID)
@@ -163,6 +194,20 @@ public class FireBaseDataBase : MonoBehaviour
           });
 
         AddTotalVote();
+    }
+
+    // Oyu VEREN kişiyi (hedefi değil) bu fazda "işlemini yaptı" olarak işaretler.
+    // GameManager bekleme döngülerinde gerçek oyuncuların (bot olmayanların)
+    // hepsi bunu işaretlemeden faza devam etmez. Gerçek bir oy içermeyen
+    // "Geç" aksiyonu için de bu metot çağrılır (bkz. PlayerTurnController.MarkPhaseAcknowledged).
+    public void MarkPlayerVoted(string voterPlayerID)
+    {
+        db.Child("Rooms")
+          .Child(CurrentRoomID)
+          .Child("Players")
+          .Child(voterPlayerID)
+          .Child("HasVotedThisPhase")
+          .SetValueAsync(true);
     }
 
     public void AddTotalVote()
@@ -200,17 +245,25 @@ public class FireBaseDataBase : MonoBehaviour
                       .Child(child.Key)
                       .Child("VoteCount")
                       .SetValueAsync(0);
+
+                    db.Child("Rooms")
+                      .Child(CurrentRoomID)
+                      .Child("Players")
+                      .Child(child.Key)
+                      .Child("HasVotedThisPhase")
+                      .SetValueAsync(false);
                 }
             }
         });
     }
 
     // =====================================================
-    // F�REBASE VER� OKUMA METODLARI (TEK SEFERL�K �EK��)
+    // FIREBASE VERİ OKUMA METODLARI (TEK SEFERLİK ÇEKİŞ)
     // =====================================================
 
-    // Anl�k, tek seferlik oda verisi �ekmek i�in (�rn. dinleyici ba�lamadan �nceki ilk y�kleme).
-    // D�ng� i�inde tekrar tekrar �a��rarak "polling" yapmak yerine StartListeningRoom kullan�n.
+    // Anlık, tek seferlik oda verisi çekmek için (örn. dinleyici başlamadan önceki
+    // ilk yükleme). Döngü içinde tekrar tekrar çağırarak "polling" yapmak yerine
+    // StartListeningRoom kullanın.
     public async Task<Room> GetRoomAsync()
     {
         if (string.IsNullOrEmpty(CurrentRoomID)) return null;
@@ -240,7 +293,11 @@ public class FireBaseDataBase : MonoBehaviour
         room.SelectedDeadPlayer = snapshot.Child("SelectedDeadPlayer").Value?.ToString();
         room.OldDoctorVote = snapshot.Child("OldDoctorVote").Value?.ToString();
 
-        // Players Listesini Doldurma
+        room.LastNightMessage = snapshot.Child("LastNightMessage").Value?.ToString() ?? "";
+        room.LastVoteMessage = snapshot.Child("LastVoteMessage").Value?.ToString() ?? "";
+        room.GameOverMessage = snapshot.Child("GameOverMessage").Value?.ToString() ?? "";
+
+        // Oyuncu Listesini Doldurma
         room.Players = new List<Users>();
         var playersSnapshot = snapshot.Child("Players");
 
@@ -265,6 +322,12 @@ public class FireBaseDataBase : MonoBehaviour
                 if (child.Child("IsHost").Value != null)
                     user.IsHost = Convert.ToBoolean(child.Child("IsHost").Value);
 
+                if (child.Child("IsBot").Value != null)
+                    user.IsBot = Convert.ToBoolean(child.Child("IsBot").Value);
+
+                if (child.Child("HasVotedThisPhase").Value != null)
+                    user.HasVotedThisPhase = Convert.ToBoolean(child.Child("HasVotedThisPhase").Value);
+
                 room.Players.Add(user);
             }
         }
@@ -273,17 +336,18 @@ public class FireBaseDataBase : MonoBehaviour
     }
 
     // =====================================================
-    // ODA D�NLEY�C�S� (REAL-TIME, POLL�NG YOK)
+    // ODA DİNLEYİCİSİ (REAL-TIME, POLLING YOK)
     // =====================================================
 
-    // Oday� bir kez dinlemeye ba�lar. Her de�i�iklikte (state, oyuncular, oylar)
-    // OnRoomChanged event'i t�m abonelere (GameManager, PlayerTurnController vb.) g�venli �ekilde yay�n yapar.
-    // Idempotent'tir: zaten dinleniyorsa tekrar �a�r�l�rsa hi�bir �ey yapmaz.
+    // Odayı bir kez dinlemeye başlar. Her değişiklikte (state, oyuncular, oylar)
+    // OnRoomChanged event'i tüm abonelere (GameManager, PlayerTurnController vb.)
+    // güvenli şekilde yayın yapar. Idempotent'tir: zaten dinleniyorsa tekrar
+    // çağrılırsa hiçbir şey yapmaz.
     public void StartListeningRoom()
     {
         if (string.IsNullOrEmpty(CurrentRoomID))
         {
-            Debug.LogWarning("Oda ID'si bo� oldu�u i�in dinleyici ba�lat�lamad�.");
+            Debug.LogWarning("Oda ID'si boş olduğu için dinleyici başlatılamadı.");
             return;
         }
 
@@ -293,7 +357,7 @@ public class FireBaseDataBase : MonoBehaviour
         {
             if (args.DatabaseError != null)
             {
-                Debug.LogError($"Oda dinleme hatas�: {args.DatabaseError.Message}");
+                Debug.LogError($"Oda dinleme hatası: {args.DatabaseError.Message}");
                 return;
             }
 
@@ -315,7 +379,7 @@ public class FireBaseDataBase : MonoBehaviour
     }
 
     // =====================================================
-    // AYRILMA ��LEMLER�
+    // AYRILMA İŞLEMLERİ
     // =====================================================
 
     public async void LeaveRoom()
@@ -331,7 +395,7 @@ public class FireBaseDataBase : MonoBehaviour
         if (hostID == CurrentPlayerID)
         {
             await db.Child("Rooms").Child(CurrentRoomID).RemoveValueAsync();
-            Debug.Log("Host ayr�ld��� i�in oda silindi.");
+            Debug.Log("Host ayrıldığı için oda silindi.");
         }
         else
         {
@@ -340,7 +404,7 @@ public class FireBaseDataBase : MonoBehaviour
                     .Child("Players")
                     .Child(CurrentPlayerID)
                     .RemoveValueAsync();
-            Debug.Log("Oyuncu odadan ayr�ld�.");
+            Debug.Log("Oyuncu odadan ayrıldı.");
         }
 
         StopListeningRoom();
@@ -348,9 +412,10 @@ public class FireBaseDataBase : MonoBehaviour
 
     private void OnApplicationQuit()
     {
-        // Not: Bu ��a��r� normal ��k��ta �al���r, ancak Task tamamlanmadan uygulama kapanabilir.
-        // Ger�ek g�vence CreatePlayerInRoom i�indeki OnDisconnect().RemoveValue() �a�r�s�d�r
-        // (��k��, a� kopmas� veya �ok�) ��nk� o, sunucu taraf�nda garanti �al���r.
+        // Not: Bu çağrı normal çıkışta çalışır, ancak Task tamamlanmadan uygulama
+        // kapanabilir. Gerçek güvence CreatePlayerInRoom içindeki
+        // OnDisconnect().RemoveValue() çağrısıdır (çıkış, ağ kopması veya çökme),
+        // çünkü o sunucu tarafında garanti çalışır.
         LeaveRoom();
     }
 }

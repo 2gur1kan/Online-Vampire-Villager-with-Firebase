@@ -14,6 +14,10 @@ public class Users
 
     public bool IsHost;
 
+    public bool IsBot;
+
+    public bool HasVotedThisPhase;
+
     public int VoteCount;
 
     public Users()
@@ -27,6 +31,10 @@ public class Users
         IsAlive = true;
 
         IsHost = false;
+
+        IsBot = false;
+
+        HasVotedThisPhase = false;
 
         VoteCount = 0;
     }
@@ -51,6 +59,15 @@ public class Room
 
     public string OldDoctorVote;
 
+    // Bu üç alan, gece/oylama sonucu ve oyun bitişi gibi bilgileri TÜM
+    // oyunculara (sadece host'un Debug.Log konsoluna değil) göstermek için
+    // Firebase üzerinden yazılır. GameStatusText bunları dinleyip ekrana basar.
+    public string LastNightMessage;
+
+    public string LastVoteMessage;
+
+    public string GameOverMessage;
+
     public Room()
     {
         ReadData = false;
@@ -66,6 +83,12 @@ public class Room
         Players = new List<Users>();
 
         SelectedDeadPlayer = null;
+
+        LastNightMessage = "";
+
+        LastVoteMessage = "";
+
+        GameOverMessage = "";
     }
 }
 
