@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
@@ -21,9 +22,14 @@ public class LobbyPanel : MonoBehaviour
     [SerializeField] private Transform playerListContainer;
     [SerializeField] private LobbyPlayerItem playerListItemPrefab;
 
+    [Header("Ayarlar")]
+    [Tooltip("Oyun bitince kazanan mesajının, Lobi'ye dönmeden önce ekranda ne kadar süre kalacağı.")]
+    [SerializeField] private float endGameMessageDisplaySeconds = 4f;
+
     private FireBaseDataBase db;
     private Room currentRoom;
     private readonly List<LobbyPlayerItem> spawnedItems = new List<LobbyPlayerItem>();
+    private Coroutine endGameRoutine;
 
     private void Start()
     {
@@ -124,8 +130,21 @@ public class LobbyPanel : MonoBehaviour
 
         if (state == GameState.EndGame)
         {
-            gamePanelRoot.SetActive(false);
-            lobbyPanelRoot.SetActive(true);
+            // Kazanan mesajı (GameStatusText zaten Room.LastEventMessage'ı
+            // gösteriyor) okunmaya fırsat kalmadan ekran çat diye Lobi'ye
+            // dönmesin diye burada bir süre bekliyoruz. GamePanel bu süre
+            // boyunca açık kalır, VotePanel zaten kapalıdır (oylama fazı
+            // değil), yani ekranda sadece kazanan mesajı görünür.
+            if (endGameRoutine != null) StopCoroutine(endGameRoutine);
+            endGameRoutine = StartCoroutine(ReturnToLobbyAfterDelay());
         }
+    }
+
+    private IEnumerator ReturnToLobbyAfterDelay()
+    {
+        yield return new WaitForSeconds(endGameMessageDisplaySeconds);
+
+        gamePanelRoot.SetActive(false);
+        lobbyPanelRoot.SetActive(true);
     }
 }

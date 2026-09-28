@@ -15,6 +15,8 @@ public class GameManager : MonoBehaviour
 {
     public static GameManager Instance;
 
+    public bool UnlockBots = true;
+
     [Header("Test Ayarları")]
     [Tooltip("Açıksa, oyun sahneye başlarken kendi test odasını kurar. " +
              "ConnectPanel üzerinden gerçek akışı test ederken bunu kapatın.")]
@@ -22,7 +24,7 @@ public class GameManager : MonoBehaviour
 
     private static readonly List<string> SystemBotNames = new List<string>
     {
-        "Ali", "Mehmet", "Ayşe", "Fatma", "Mustafa", "Gürkan"
+        "Talon", "Abuzer", "Fettah"
     };
 
     // Bu süreler hem VotePanel'in gösterdiği geri sayımı (StartPhaseTimer ile,
@@ -111,6 +113,8 @@ public class GameManager : MonoBehaviour
 
     private async Task SpawnSystemBotsAsync()
     {
+        if (!UnlockBots) return;
+
         foreach (string name in SystemBotNames)
         {
             Users bot = new Users
@@ -297,6 +301,7 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("[FAZ] Gece çöktü / Roller hatırlatılıyor...");
         db.ChangeGameState(GameState.RoleReveal);
+        db.SetLastEventMessage("Roller dağıtıldı. Oyun başlıyor...");
         yield return new WaitForSeconds(3f);
     }
 
@@ -305,6 +310,7 @@ public class GameManager : MonoBehaviour
         Debug.Log("[FAZ] Gece: Vampirler oy veriyor...");
         db.ChangeGameState(GameState.VampireVote);
         db.StartPhaseTimer(VampireVoteDurationSeconds);
+        db.SetLastEventMessage("Gece çöktü. Vampirler kurbanını seçiyor...");
 
         // State değişikliğinin dinleyiciye ulaşması için kısa bir yayılım payı.
         yield return new WaitForSeconds(0.3f);
@@ -367,6 +373,7 @@ public class GameManager : MonoBehaviour
         Debug.Log("[FAZ] Gece: Doktor seçim yapıyor...");
         db.ChangeGameState(GameState.DoctorVote);
         db.StartPhaseTimer(DoctorVoteDurationSeconds);
+        db.SetLastEventMessage("Doktor bu gece kimi koruyacağına karar veriyor...");
 
         yield return new WaitForSeconds(0.3f);
 
@@ -418,6 +425,7 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("[FAZ] Gündüz oldu! Gece raporu işleniyor...");
         db.ChangeGameState(GameState.Day);
+        db.SetLastEventMessage("Gün ağarıyor. Gece yaşananlar açıklanıyor...");
 
         yield return new WaitForSeconds(0.3f);
 
@@ -434,6 +442,7 @@ public class GameManager : MonoBehaviour
         Debug.Log("[FAZ] Gündüz: Köy oylaması başladı...");
         db.ChangeGameState(GameState.Voting);
         db.StartPhaseTimer(VillageVoteDurationSeconds);
+        db.SetLastEventMessage("Köy oylaması başladı. Şüphelendiğiniz kişiyi seçin...");
 
         yield return new WaitForSeconds(0.3f);
 
@@ -461,6 +470,7 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("[FAZ] Oylama sonuçları açıklanıyor...");
         db.ChangeGameState(GameState.Result);
+        db.SetLastEventMessage("Oylama sonuçları açıklanıyor...");
 
         yield return new WaitForSeconds(0.3f);
 

@@ -11,6 +11,7 @@ public class NameEntryPanel : MonoBehaviour
 
     [Header("UI Referansları")]
     [SerializeField] private TMP_InputField nameInputField;
+    [SerializeField] private TMP_Text botUnlockBTNText;
 
     // Yerel oyuncunun ismi. ConnectPanel bu ismi Users objesine yazarken kullanır.
     public static string LocalPlayerName { get; private set; }
@@ -22,6 +23,8 @@ public class NameEntryPanel : MonoBehaviour
         {
             nameInputField.text = PlayerPrefs.GetString("PlayerName");
         }
+
+        SelectName();
     }
 
     // "Onayla" butonuna bağlanır. Input alanındaki ismi sisteme kaydeder ve
@@ -40,5 +43,27 @@ public class NameEntryPanel : MonoBehaviour
         PlayerPrefs.SetString("PlayerName", enteredName);
 
         Debug.Log($"<color=cyan>[İSİM KAYDEDİLDİ]</color> {enteredName} (Ben)");
+    }
+
+    // Botları açıp kapatabilmemiz için bir buton işlevi
+    public void SetBots()
+    {
+        GameManager.Instance.UnlockBots = !GameManager.Instance.UnlockBots;
+        UpdateButtonText();
+    }
+
+    // Botları ayarlayan butonun üzerindeki yazıyı ayarlamak için bir fonksiyon
+    private void UpdateButtonText()
+    {
+        if (botUnlockBTNText == null) return;
+
+        if (GameManager.Instance.UnlockBots)
+        {
+            botUnlockBTNText.text = "Botlar: Açık";
+        }
+        else
+        {
+            botUnlockBTNText.text = "Botlar: Kapalı";
+        }
     }
 }
