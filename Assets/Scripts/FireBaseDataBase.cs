@@ -115,7 +115,17 @@ public class FireBaseDataBase : MonoBehaviour
     public void CreateRoom(Room roomObj)
     {
         CurrentRoomID = roomObj.RoomID;
-        db.Child("Rooms").Child(roomObj.RoomID).SetRawJsonValueAsync(JsonUtility.ToJson(roomObj));
+
+        DatabaseReference roomRef = db.Child("Rooms").Child(roomObj.RoomID);
+        roomRef.SetRawJsonValueAsync(JsonUtility.ToJson(roomObj));
+
+        // HOST PRESENCE: Host'un bağlantısı aniden koparsa (uygulama arka
+        // planda kapatılırsa/öldürülürse, çökerse, ağ kesilirse) normal
+        // "LeaveRoom" akışı hiç çalışmaz (OnApplicationQuit mobilde bu
+        // durumlarda güvenilir şekilde tetiklenmez). Bu yüzden sunucuya
+        // "host koparsa TÜM odayı sil" talimatını önceden veriyoruz; böylece
+        // terk edilmiş bir oda Firebase'de sonsuza kadar asılı kalmaz.
+        roomRef.OnDisconnect().RemoveValue();
     }
 
     public void JoinRoom(string roomID, Users player)

@@ -73,6 +73,17 @@ public class VotePanel : MonoBehaviour
             return;
         }
 
+        Users localPlayer = PlayerTurnController.Instance.GetLocalPlayer();
+
+        if (localPlayer == null || !localPlayer.IsAlive)
+        {
+            // Ölü oyuncular oylamaya katılmaz. Ölümleri zaten LastEventMessage
+            // ile herkese duyurulduğu için burada gizlenecek bir şey yok;
+            // panel hiç açılmadan sadece izleyici konumunda kalırlar.
+            ClosePanel();
+            return;
+        }
+
         OpenPanelWithOptions(state);
     }
 
@@ -211,17 +222,6 @@ public class VotePanel : MonoBehaviour
         }
     }
 
-    private void AddPassButton()
-    {
-        Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
-        newButton.gameObject.SetActive(true);
-        newButton.GetComponentInChildren<TMP_Text>().text = PassButtonLabel;
-
-        newButton.onClick.AddListener(OnPassButtonClicked);
-
-        spawnedButtons.Add(newButton);
-    }
-
     // Sıra bizde değilken: gerçek oyuncu sayısıyla AYNI sayıda buton, ama
     // hepsinde "Geç" yazar. Ekranın görünümü, sıra kimdeyse onunkiyle birebir
     // aynı kalır; hangi butona basılırsa basılsın sadece "geçildiğini" işaretler.
@@ -237,6 +237,18 @@ public class VotePanel : MonoBehaviour
 
             spawnedButtons.Add(newButton);
         }
+    }
+
+    // Köy oylamasında hedef butonlarının yanına eklenen TEK "Geç" (çekimser) butonu.
+    private void AddPassButton()
+    {
+        Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
+        newButton.gameObject.SetActive(true);
+        newButton.GetComponentInChildren<TMP_Text>().text = PassButtonLabel;
+
+        newButton.onClick.AddListener(OnPassButtonClicked);
+
+        spawnedButtons.Add(newButton);
     }
 
     private void OnPlayerButtonClicked(string targetID)

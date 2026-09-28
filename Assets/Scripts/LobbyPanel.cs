@@ -92,6 +92,13 @@ public class LobbyPanel : MonoBehaviour
 
     // "Oyunu Başlat" butonuna bağlanır. Sadece odanın HOST'u için anlamlıdır;
     // misafir bir oyuncu yanlışlıkla basarsa hiçbir şey olmaz.
+    //
+    // ÖNEMLİ: Burada panel geçişini (Lobi'yi kapat, GamePanel'i aç) DOĞRUDAN
+    // yapmıyoruz — bu sadece host'un kendi cihazında olurdu, misafirler hiç
+    // haberdar olmazdı (EndGame'deki hatanın aynısı, ters yönde). Bunun yerine
+    // GameManager, oyunu gerçekten başlatırken (RoleReveal state'ine geçerken)
+    // bunu Firebase'e yazıyor; TÜM cihazlar (host dahil) aşağıdaki
+    // OnPhaseChanged üzerinden aynı anda geçiş yapıyor.
     public void StartGameBTN()
     {
         if (currentRoom == null || db.CurrentPlayerID != currentRoom.HostID)
@@ -100,19 +107,25 @@ public class LobbyPanel : MonoBehaviour
             return;
         }
 
-        lobbyPanelRoot.SetActive(false);
-        gamePanelRoot.SetActive(true);
-
         GameManager.Instance.HostGameWithSystemBots();
     }
 
-    // Firebase'den GameState.EndGame geldiğinde HERKESTE (host dahil) çalışır
-    // ve ekranı otomatik olarak lobiye döndürür.
+    // Firebase'den gelen faz değişikliklerine göre HERKESTE (host dahil) aynı
+    // anda çalışır: RoleReveal → oyun başladı, GamePanel'e geç; EndGame →
+    // oyun bitti, Lobi'ye dön.
     private void OnPhaseChanged(GameState state)
     {
-        if (state != GameState.EndGame) return;
+        if (state == GameState.RoleReveal)
+        {
+            lobbyPanelRoot.SetActive(false);
+            gamePanelRoot.SetActive(true);
+            return;
+        }
 
-        gamePanelRoot.SetActive(false);
-        lobbyPanelRoot.SetActive(true);
+        if (state == GameState.EndGame)
+        {
+            gamePanelRoot.SetActive(false);
+            lobbyPanelRoot.SetActive(true);
+        }
     }
 }
