@@ -33,6 +33,13 @@ public class VotePanel : MonoBehaviour
     [SerializeField] private Transform playerButtonContainer;
     [SerializeField] private Button playerButtonPrefab;
 
+    [Header("Süre Uzatma (Sadece Host, Köy Oylamasında)")]
+    [Tooltip("Köy oylaması sırasında sadece host'un gördüğü, süreye ekleme yapan buton.")]
+    [SerializeField] private Button extendTimeButton;
+
+    [Tooltip("extendTimeButton'a her basışta köy oylamasına eklenecek süre.")]
+    [SerializeField] private float extendTimeSeconds = 20f;
+
     [Header("Ayarlar")]
     [Tooltip("Room'dan süre bilgisi henüz gelmediyse kullanılacak yedek süre.")]
     [SerializeField] private float fallbackCountdown = 10f;
@@ -45,8 +52,24 @@ public class VotePanel : MonoBehaviour
 
     private void Start()
     {
+        // Bu üçü eksikse ("hiç seçenek gelmiyor" diye görünen çoğu durumun
+        // asıl sebebi budur) sessizce başarısız olmak yerine şimdi, net bir
+        // şekilde uyarıyoruz.
+        if (votePanelRoot == null)
+            Debug.LogError("<color=red>[VOTEPANEL KURULUM HATASI]</color> votePanelRoot Inspector'da boş!");
+        if (playerButtonContainer == null)
+            Debug.LogError("<color=red>[VOTEPANEL KURULUM HATASI]</color> playerButtonContainer Inspector'da boş! Butonlar oluşsa bile hiçbir yere yerleşmez/görünmez.");
+        if (playerButtonPrefab == null)
+            Debug.LogError("<color=red>[VOTEPANEL KURULUM HATASI]</color> playerButtonPrefab Inspector'da boş! Hiç buton oluşturulamaz.");
+
         PlayerTurnController.Instance.OnPhaseChanged += OnPhaseChanged;
         votePanelRoot.SetActive(false);
+
+        if (extendTimeButton != null)
+        {
+            extendTimeButton.onClick.AddListener(ExtendVillageVoteTimeBTN);
+            extendTimeButton.gameObject.SetActive(false);
+        }
     }
 
     private void OnDestroy()
@@ -63,6 +86,11 @@ public class VotePanel : MonoBehaviour
 
     private void OnPhaseChanged(GameState state)
     {
+        // Bu log HER faz değişiminde, hiçbir erken çıkıştan önce çalışır.
+        // Eğer bir fazda "hiç buton gelmiyor" ama bu log hiç görünmüyorsa,
+        // sorun VotePanel'de değil, event'in VotePanel'e hiç ulaşmamasındadır.
+        Debug.Log($"<color=cyan>[VOTEPANEL] OnPhaseChanged çağrıldı: {state}</color>");
+
         bool isVotePhase = state == GameState.VampireVote
                          || state == GameState.DoctorVote
                          || state == GameState.Voting;
@@ -80,6 +108,8 @@ public class VotePanel : MonoBehaviour
             // Ölü oyuncular oylamaya katılmaz. Ölümleri zaten LastEventMessage
             // ile herkese duyurulduğu için burada gizlenecek bir şey yok;
             // panel hiç açılmadan sadece izleyici konumunda kalırlar.
+            Debug.Log($"<color=cyan>[VOTEPANEL]</color> {state} fazı için panel AÇILMADI. Sebep: " +
+                      (localPlayer == null ? "localPlayer null (henüz oda verisi gelmemiş olabilir)" : "localPlayer.IsAlive = false (ölüsünüz)"));
             ClosePanel();
             return;
         }
@@ -97,11 +127,45 @@ public class VotePanel : MonoBehaviour
             phaseTitleText.text = GetPhaseTitle(state);
         }
 
-        // Seçenekler geri sayımın SONUNU beklemeden, panel açılır açılmaz gösterilir.
+        UpdateExtendTimeButtonVisibility(state);
+
+        // Seçenekleri temizleyip yeni faz için baştan oluşturuyoruz
         ShowOptionButtons(state);
+
+        // YENİ EKLENEN: Yeni oluşturulan butonların etkileşime açık olduğundan emin oluyoruz
+        SetButtonsInteractable(true);
 
         if (countdownRoutine != null) StopCoroutine(countdownRoutine);
         countdownRoutine = StartCoroutine(CountdownRoutine());
+    }
+
+    // Süre uzatma butonu SADECE köy oylamasında ve SADECE host'a görünür.
+    // Diğer oyuncular bu butonu hiç görmez.
+    private void UpdateExtendTimeButtonVisibility(GameState state)
+    {
+        if (extendTimeButton == null) return;
+
+        Room room = PlayerTurnController.Instance.GetCurrentRoom();
+        bool isHost = room != null && FireBaseDataBase.Instance.CurrentPlayerID == room.HostID;
+        bool shouldShow = state == GameState.Voting && isHost;
+
+        extendTimeButton.gameObject.SetActive(shouldShow);
+    }
+
+    // Köy oylamasına ekstra süre eklemek için host'un bastığı buton.
+    // Aynı anda herkesin ekranındaki geri sayımı senkron şekilde uzatır
+    // (bkz. FireBaseDataBase.ExtendCurrentPhaseTimer ve ComputeRemainingSeconds).
+    public void ExtendVillageVoteTimeBTN()
+    {
+        Room room = PlayerTurnController.Instance.GetCurrentRoom();
+
+        if (room == null || FireBaseDataBase.Instance.CurrentPlayerID != room.HostID)
+        {
+            Debug.LogWarning("<color=yellow>[UYARI]</color> Süreyi sadece host uzatabilir.");
+            return;
+        }
+
+        FireBaseDataBase.Instance.ExtendCurrentPhaseTimer(extendTimeSeconds);
     }
 
     private string GetPhaseTitle(GameState state)
@@ -137,19 +201,26 @@ public class VotePanel : MonoBehaviour
 
     // Bu döngü sadece görsel geri sayımı ve sürenin SONUNDA seçeneklerin
     // kaybolup panelin kapanmasını yönetir; seçenekleri açmaz (onlar zaten açık).
+    //
+    // ÖNEMLİ: Her saniye kalan süreyi SIFIRDAN, Room'daki güncel
+    // PhaseDurationSeconds'a göre yeniden hesaplıyoruz (yerel bir sayaçtan
+    // azaltmak yerine). Host, ExtendCurrentPhaseTimer ile süreyi ortasında
+    // uzatırsa, bir sonraki tik bunu otomatik olarak yakalar — ekstra bir
+    // "değişti mi?" kontrolüne gerek kalmadan geri sayım kendiliğinden uzar.
     private IEnumerator CountdownRoutine()
     {
-        float timer = ComputeRemainingSeconds();
+        float remaining = ComputeRemainingSeconds();
 
-        while (timer > 0f)
+        while (remaining > 0f)
         {
             if (countdownText != null)
             {
-                countdownText.text = Mathf.CeilToInt(timer).ToString();
+                countdownText.text = Mathf.CeilToInt(remaining).ToString();
             }
 
             yield return new WaitForSeconds(1f);
-            timer -= 1f;
+
+            remaining = ComputeRemainingSeconds();
         }
 
         if (countdownText != null)
@@ -170,14 +241,12 @@ public class VotePanel : MonoBehaviour
     }
 
     // =====================================================
-    // BUTON GÖSTERİMİ (ANONİMLİK MANTIĞI)
+    // BUTON GÖSTERİMİ
     // =====================================================
 
     private void ShowOptionButtons(GameState state)
     {
         ClearPlayerButtons();
-
-        bool canAct = PlayerTurnController.Instance.CanActNow;
 
         Room room = PlayerTurnController.Instance.GetCurrentRoom();
         Users localPlayer = PlayerTurnController.Instance.GetLocalPlayer();
@@ -188,21 +257,29 @@ public class VotePanel : MonoBehaviour
             .Where(p => p.IsAlive && p.UserID != localPlayer.UserID)
             .ToList();
 
+        bool canAct = PlayerTurnController.Instance.CanActNow;
+
+        Debug.Log($"<color=magenta>[VOTEPANEL]</color> Faz: {state} | Rolüm: {localPlayer.Role} | CanActNow: {canAct} | Diğer oyuncular: {others.Count}");
+
         if (state == GameState.Voting)
         {
-            // Köy oylamasında anonimlik gerekmez (herkes zaten oy kullanır);
-            // ama çekimser kalmak isteyenler için hedef butonlarının YANINA
-            // bir "Geç" butonu da ekleniyor.
+            // Köy oylamasında herkes oy kullanabilir, anonimlik gerekmez.
             SetPlayerNameButtons(others);
             AddPassButton();
         }
-        else if (canAct)
-        {
-            SetPlayerNameButtons(others);
-        }
         else
         {
-            SetPassButtons(others.Count);
+            // Gece fazları (VampireVote / DoctorVote)
+            if (canAct)
+            {
+                Debug.Log("<color=magenta>[VOTEPANEL]</color> Gerçek hedef butonları gösteriliyor.");
+                SetPlayerNameButtons(others);
+            }
+            else
+            {
+                Debug.Log("<color=magenta>[VOTEPANEL]</color> 'Geç' (anonim) butonları gösteriliyor.");
+                SetPassButtons(others.Count);
+            }
         }
     }
 
@@ -213,7 +290,7 @@ public class VotePanel : MonoBehaviour
         {
             Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
             newButton.gameObject.SetActive(true);
-            newButton.GetComponentInChildren<TMP_Text>().text = target.UserName;
+            SetButtonLabel(newButton, target.UserName);
 
             string targetID = target.UserID; // closure için yerel kopya
             newButton.onClick.AddListener(() => OnPlayerButtonClicked(targetID));
@@ -231,7 +308,7 @@ public class VotePanel : MonoBehaviour
         {
             Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
             newButton.gameObject.SetActive(true);
-            newButton.GetComponentInChildren<TMP_Text>().text = PassButtonLabel;
+            SetButtonLabel(newButton, PassButtonLabel);
 
             newButton.onClick.AddListener(OnPassButtonClicked);
 
@@ -244,11 +321,35 @@ public class VotePanel : MonoBehaviour
     {
         Button newButton = Instantiate(playerButtonPrefab, playerButtonContainer);
         newButton.gameObject.SetActive(true);
-        newButton.GetComponentInChildren<TMP_Text>().text = PassButtonLabel;
+        SetButtonLabel(newButton, PassButtonLabel);
 
         newButton.onClick.AddListener(OnPassButtonClicked);
 
         spawnedButtons.Add(newButton);
+    }
+
+    // ÖNEMLİ: GetComponentInChildren, prefabınızdaki metin "empty object" gibi
+    // bir ara obje PASİF durumdaysa (includeInactive vermezseniz) hiçbir şey
+    // bulamaz ve doğrudan .text yazmaya çalışmak NullReferenceException
+    // fırlatırdı. Bu hata, ShowOptionButtons'ın ORTASINDA fırlayıp kalan
+    // butonların hiç oluşmamasına VE PlayerTurnController'daki olay
+    // zincirinin kesilmesine (bkz. PlayerTurnController.OnRoomDataChanged)
+    // yol açabiliyordu — "bazı fazlarda hiçbir seçenek gelmiyor" hatasının
+    // en olası sebebi buydu. Artık includeInactive:true ile aranıyor ve
+    // bulunamazsa sessizce çökmek yerine açık bir hata basılıyor.
+    private void SetButtonLabel(Button button, string text)
+    {
+        TMP_Text label = button.GetComponentInChildren<TMP_Text>(true);
+
+        if (label == null)
+        {
+            Debug.LogError("<color=red>[HATA]</color> playerButtonPrefab içinde TMP_Text bulunamadı! " +
+                           "Butonun altında (doğrudan ya da bir alt obje içinde) bir " +
+                           "TextMeshPro - Text (UI) olduğundan emin olun.");
+            return;
+        }
+
+        label.text = text;
     }
 
     private void OnPlayerButtonClicked(string targetID)

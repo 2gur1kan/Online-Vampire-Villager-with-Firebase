@@ -97,15 +97,51 @@ public class FireBaseDataBase : MonoBehaviour
     // saatiyle (ServerValue.Timestamp) ve süresini Room'a yazar. Böylece
     // her cihaz, kendi Firebase güncellemesini ne zaman aldığından bağımsız
     // olarak aynı bitiş anını hesaplar ve geri sayımlar senkron olur.
-    public void StartPhaseTimer(float durationSeconds)
+    // VotePanel'in geri sayımını kullanan fazlar (VampireVote/DoctorVote/
+    // Voting) için State + PhaseStartTimeMillis + PhaseDurationSeconds'ı
+    // TEK bir yazmada birlikte günceller.
+    //
+    // ÖNEMLİ: Bunları eskiden AYRI AYRI yazıyorduk (önce ChangeGameState,
+    // sonra StartPhaseTimer). Bu tehlikeliydi: bir cihaz "yeni faza
+    // geçildi" güncellemesini, süre bilgisi henüz gelmeden alabiliyordu.
+    // O anda VotePanel'in geri sayımı BİR ÖNCEKİ fazın (çoktan dolmuş)
+    // süresini okuyup anında "süre doldu" sanıyor ve oyuncuyu hiç
+    // beklemeden otomatik "oy kullandı" (HasVotedThisPhase=true) olarak
+    // işaretliyordu — oyuncu daha seçim yapmadan fazın otomatik geçmesinin
+    // asıl sebebi buydu. Artık üçü TEK bir UpdateChildrenAsync çağrısıyla
+    // birlikte yazıldığı için, bunu alan her cihaz state ve süreyi HER
+    // ZAMAN tutarlı bir çift olarak görür.
+    public void ChangeGameStateWithTimer(GameState state, float durationSeconds)
     {
         var updates = new Dictionary<string, object>
         {
+            { "State", (int)state },
             { "PhaseStartTimeMillis", ServerValue.Timestamp },
             { "PhaseDurationSeconds", durationSeconds }
         };
 
         db.Child("Rooms").Child(CurrentRoomID).UpdateChildrenAsync(updates);
+    }
+
+    // Aktif fazın süresini SONRADAN uzatır (örn. host köy oylamasına +20sn
+    // eklerse). PhaseStartTimeMillis'e dokunmaz; sadece PhaseDurationSeconds
+    // üzerine ekler. Transaction kullanıyoruz ki aynı anda birden fazla
+    // uzatma isteği gelirse (pek olası değil ama) üzerine yazma olmasın.
+    // VotePanel'in geri sayımı zaten her saniye bu değeri yeniden okuduğu
+    // için (bkz. VotePanel.ComputeRemainingSeconds), ekstra bir şey yapmaya
+    // gerek kalmadan TÜM cihazlarda otomatik olarak yansır.
+    public void ExtendCurrentPhaseTimer(float extraSeconds)
+    {
+        db.Child("Rooms").Child(CurrentRoomID).Child("PhaseDurationSeconds").RunTransaction(mutable =>
+        {
+            float current = 0f;
+            if (mutable.Value != null)
+            {
+                current = Convert.ToSingle(mutable.Value);
+            }
+            mutable.Value = current + extraSeconds;
+            return TransactionResult.Success(mutable);
+        });
     }
 
     // =====================================================

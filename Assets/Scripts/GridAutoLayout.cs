@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -25,6 +26,7 @@ public class GridAutoLayout : MonoBehaviour
 
     private GridLayoutGroup grid;
     private RectTransform rectTransform;
+    private Coroutine retryRoutine;
 
     private void Awake()
     {
@@ -50,6 +52,19 @@ public class GridAutoLayout : MonoBehaviour
         int itemCount = transform.childCount;
         if (itemCount <= 0 || grid == null || rectTransform == null) return;
 
+        // ÖNEMLİ: Panel bu karede yeni aktif edildiyse (örn. VotePanel az önce
+        // SetActive(true) oldu) Unity'nin layout geçişi henüz çalışmamış
+        // olabilir ve rect.width/height burada hâlâ 0 gelebilir. Bu durumda
+        // eskiden hücreler 1 piksele sıkışıp GÖRÜNMEZ butonlar üretiyordu —
+        // "seçenek hiç gelmiyor" şikayetinin olası sebeplerinden biri buydu.
+        // Artık 0 boyut görürsek bir kare bekleyip tekrar deniyoruz.
+        if (rectTransform.rect.width <= 0f || rectTransform.rect.height <= 0f)
+        {
+            if (retryRoutine != null) StopCoroutine(retryRoutine);
+            retryRoutine = StartCoroutine(RetryNextFrame());
+            return;
+        }
+
         // Kare bir grid için sütun sayısını sayının kareköküne yuvarlayarak buluyoruz;
         // böylece hem yatayda hem dikeyde dengeli bir dağılım oluyor.
         int columns = Mathf.CeilToInt(Mathf.Sqrt(itemCount));
@@ -72,8 +87,17 @@ public class GridAutoLayout : MonoBehaviour
         float cellHeight = containerHeight / rows;
 
         // Kare hücre: ikisinden küçük olanı seçiyoruz ki hiçbir eleman taşmasın.
-        float cellSize = Mathf.Max(1f, Mathf.Min(cellWidth, cellHeight));
+        // Alt sınırı 1 piksel yerine 20 piksele çıkardım: 0'a yakın bir değer
+        // hesaba katılan padding/spacing'den kaynaklanıyorsa bile en azından
+        // GÖRÜLEBİLİR bir buton kalsın (tamamen görünmez olmasın).
+        float cellSize = Mathf.Max(20f, Mathf.Min(cellWidth, cellHeight));
 
         grid.cellSize = new Vector2(cellSize, cellSize);
+    }
+
+    private IEnumerator RetryNextFrame()
+    {
+        yield return null; // bir kare bekle, Unity'nin layout geçişi otursun
+        Recalculate();
     }
 }

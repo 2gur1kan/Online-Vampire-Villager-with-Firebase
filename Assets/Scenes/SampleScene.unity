@@ -147,15 +147,15 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 18711296}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 821774636}
+  m_Father: {fileID: 1649178902}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 1, y: 0.8}
+  m_AnchorMin: {x: 0.1, y: 0.2}
+  m_AnchorMax: {x: 0.9, y: 0.7}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
@@ -188,8 +188,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 1, g: 1, b: 1, a: 1}
+    rgba: 4290690810
+  m_fontColor: {r: 0.9811321, g: 0.745105, b: 0.745105, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -206,7 +206,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 69.45
+  m_fontSize: 29.25
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -905,6 +905,7 @@ GameObject:
   - component: {fileID: 411953687}
   - component: {fileID: 411953686}
   - component: {fileID: 411953688}
+  - component: {fileID: 411953689}
   m_Layer: 0
   m_Name: Manager
   m_TagString: Untagged
@@ -924,8 +925,25 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c151585084b8a524488d5659f50e3d08, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  UnlockBots: 1
   autoStartTestGameOnPlay: 0
+  roleRevealDurationSeconds: 5
+  vampireVoteDurationSeconds: 10
+  doctorVoteDurationSeconds: 10
+  villageVoteDurationSeconds: 30
+  waitSafetyBufferSeconds: 5
+  preRoleRevealWaitSeconds: 0.5
+  preVampireVoteWaitSeconds: 0.5
+  preDoctorVoteWaitSeconds: 0.5
+  preVillageVoteWaitSeconds: 0.5
+  statePropagationDelaySeconds: 0.5
+  noActorSkipWaitSeconds: 2
+  voteResultBufferSeconds: 2
+  vampirePhaseResultDisplaySeconds: 3
+  doctorPhaseResultDisplaySeconds: 3
+  dayResultPropagationDelaySeconds: 3
+  dayResultDisplaySeconds: 3
+  votingPhaseResultDisplaySeconds: 3
+  resultPhaseDisplaySeconds: 3
 --- !u!4 &411953687
 Transform:
   m_ObjectHideFlags: 0
@@ -953,6 +971,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 25e3334c6e1d32445bd9dddbfec659e3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &411953689
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 411953685}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ced7c5ce18d1ccc4ca7487430a141c31, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  UnlockBots: 1
 --- !u!1 &438778503
 GameObject:
   m_ObjectHideFlags: 0
@@ -1122,7 +1153,7 @@ RectTransform:
   m_Father: {fileID: 821774636}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 1, y: 0.8}
+  m_AnchorMax: {x: 1, y: 0.7}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
@@ -1765,7 +1796,7 @@ RectTransform:
   m_Children:
   - {fileID: 1089184392}
   - {fileID: 339920211}
-  - {fileID: 18711297}
+  - {fileID: 1649178902}
   - {fileID: 567704349}
   - {fileID: 1324597589}
   m_Father: {fileID: 886929714}
@@ -2122,6 +2153,8 @@ MonoBehaviour:
   phaseTitleText: {fileID: 339920212}
   playerButtonContainer: {fileID: 567704349}
   playerButtonPrefab: {fileID: 1127557960971382618, guid: 8e7a497f99903db40acbc9c7ca31435e, type: 3}
+  extendTimeButton: {fileID: 0}
+  extendTimeSeconds: 20
   fallbackCountdown: 10
 --- !u!114 &886929719
 MonoBehaviour:
@@ -2136,7 +2169,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   statusText: {fileID: 18711298}
-  voteAnnouncementVisibleSeconds: 2
 --- !u!1 &889132293
 GameObject:
   m_ObjectHideFlags: 0
@@ -3871,6 +3903,82 @@ CanvasRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1396981511}
+  m_CullTransparentMesh: 1
+--- !u!1 &1649178901
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1649178902}
+  - component: {fileID: 1649178904}
+  - component: {fileID: 1649178903}
+  m_Layer: 5
+  m_Name: Story Board
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &1649178902
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1649178901}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 18711297}
+  m_Father: {fileID: 821774636}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0.7}
+  m_AnchorMax: {x: 1, y: 0.9}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &1649178903
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1649178901}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: -2060596327, guid: 792a306949ab40e4c89a5d4c9e47d13c, type: 3}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &1649178904
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1649178901}
   m_CullTransparentMesh: 1
 --- !u!1 &1706132875
 GameObject:

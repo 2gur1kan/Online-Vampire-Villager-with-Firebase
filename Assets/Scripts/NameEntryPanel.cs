@@ -48,7 +48,7 @@ public class NameEntryPanel : MonoBehaviour
     // Botları açıp kapatabilmemiz için bir buton işlevi
     public void SetBots()
     {
-        GameManager.Instance.UnlockBots = !GameManager.Instance.UnlockBots;
+        BOTManager.Instance.UnlockBots = !BOTManager.Instance.UnlockBots;
         UpdateButtonText();
     }
 
@@ -57,7 +57,7 @@ public class NameEntryPanel : MonoBehaviour
     {
         if (botUnlockBTNText == null) return;
 
-        if (GameManager.Instance.UnlockBots)
+        if (BOTManager.Instance.UnlockBots)
         {
             botUnlockBTNText.text = "Botlar: Açık";
         }

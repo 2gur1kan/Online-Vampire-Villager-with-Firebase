@@ -14,6 +14,7 @@ public class PlayerTurnController : MonoBehaviour
     private FireBaseDataBase db;
     private Room currentRoom;
     private Users localPlayer;
+    private GameState? lastBroadcastState;
 
     // UI tarafı bu event'lere abone olup ekranı günceller.
     public event Action<GameState> OnPhaseChanged;
@@ -60,8 +61,45 @@ public class PlayerTurnController : MonoBehaviour
         currentRoom = room;
         localPlayer = room.Players.Find(p => p.UserID == db.CurrentPlayerID);
 
-        OnPhaseChanged?.Invoke(room.State);
+        // ÖNEMLİ SIRALAMA: CanActNow, dinleyicilere (VotePanel vb.) haber
+        // vermeden ÖNCE güncellenir. Eskiden bu iki satır ters sıradaydı;
+        // yani VotePanel yeni faza göre buton kararı verirken CanActNow HÂLÂ
+        // ÖNCEKİ fazın değerini taşıyordu (bir sonraki Firebase güncellemesi
+        // gelene kadar). Bu, özellikle rolü faz-faz değişen gerçek oy hakkı
+        // durumlarında yanlış (bir faz geriden) butonların gösterilmesine
+        // sebep olabiliyordu.
         UpdateTurnState(room.State);
+
+        // OnPhaseChanged'i SADECE state gerçekten değiştiyse tetikle (aksi
+        // halde oyuncu ekleme/çıkarma gibi state'i ilgilendirmeyen her
+        // yazmada da tetiklenip örn. LobbyPanel'in "birazdan lobiye dön"
+        // sayacını sürekli yeniden başlatabiliyordu).
+        if (lastBroadcastState == room.State) return;
+
+        lastBroadcastState = room.State;
+
+        // ÖNEMLİ GÜVENLİK: Dinleyicilerden biri (örn. VotePanel) bir hata
+        // fırlatırsa, normal bir "OnPhaseChanged?.Invoke(...)" çağrısı bu
+        // hatayı fırlatan noktadan SONRAKİ TÜM dinleyicileri (GameStatusText,
+        // RoleRevealPanel, LobbyPanel...) ÇALIŞTIRMADAN durur — ve bu hata
+        // buraya (OnRoomDataChanged'e) kadar yükselir. Bunu önlemek için
+        // dinleyicileri TEK TEK, her birini kendi try/catch'i içinde
+        // çağırıyoruz: biri patlasa bile diğerleri normal çalışmaya devam eder.
+        if (OnPhaseChanged == null) return;
+
+        foreach (Delegate d in OnPhaseChanged.GetInvocationList())
+        {
+            var handler = (Action<GameState>)d;
+
+            try
+            {
+                handler(room.State);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"<color=red>[OnPhaseChanged HATASI]</color> Bir dinleyici hata fırlattı, diğerleri yine de çalıştı: {e}");
+            }
+        }
     }
 
     // =====================================================
@@ -94,6 +132,8 @@ public class PlayerTurnController : MonoBehaviour
 
         CanActNow = canAct;
         OnMyTurnChanged?.Invoke(canAct);
+
+        Debug.Log($"<color=magenta>[SIRA KONTROLÜ]</color> Faz: {state} | Rolüm: {localPlayer?.Role} | Hayatta mıyım: {localPlayer?.IsAlive} | CanActNow: {canAct}");
     }
 
     // =====================================================
