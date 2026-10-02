@@ -926,10 +926,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   autoStartTestGameOnPlay: 0
-  roleRevealDurationSeconds: 5
+  roleRevealDurationSeconds: 1
   vampireVoteDurationSeconds: 10
   doctorVoteDurationSeconds: 10
-  villageVoteDurationSeconds: 30
+  villageVoteDurationSeconds: 60
   waitSafetyBufferSeconds: 5
   preRoleRevealWaitSeconds: 0.5
   preVampireVoteWaitSeconds: 0.5
@@ -938,11 +938,11 @@ MonoBehaviour:
   statePropagationDelaySeconds: 0.5
   noActorSkipWaitSeconds: 2
   voteResultBufferSeconds: 2
-  vampirePhaseResultDisplaySeconds: 3
-  doctorPhaseResultDisplaySeconds: 3
-  dayResultPropagationDelaySeconds: 3
-  dayResultDisplaySeconds: 3
-  votingPhaseResultDisplaySeconds: 3
+  vampirePhaseResultDisplaySeconds: 2
+  doctorPhaseResultDisplaySeconds: 2
+  dayResultPropagationDelaySeconds: 1
+  dayResultDisplaySeconds: 2
+  votingPhaseResultDisplaySeconds: 2
   resultPhaseDisplaySeconds: 3
 --- !u!4 &411953687
 Transform:

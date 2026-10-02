@@ -34,10 +34,9 @@ public class VotePanel : MonoBehaviour
     [SerializeField] private Button playerButtonPrefab;
 
     [Header("Süre Uzatma (Sadece Host, Köy Oylamasında)")]
-    [Tooltip("Köy oylaması sırasında sadece host'un gördüğü, süreye ekleme yapan buton.")]
-    [SerializeField] private Button extendTimeButton;
-
-    [Tooltip("extendTimeButton'a her basışta köy oylamasına eklenecek süre.")]
+    [Tooltip("Köy oylamasında, diğer karakter butonlarıyla AYNI prefab'tan, " +
+             "sadece host'un ekranına dinamik olarak eklenecek '+20' butonuna " +
+             "her basışta köy oylamasına eklenecek süre.")]
     [SerializeField] private float extendTimeSeconds = 20f;
 
     [Header("Ayarlar")]
@@ -47,6 +46,7 @@ public class VotePanel : MonoBehaviour
     private const string PassButtonLabel = "Geç";
 
     private readonly List<Button> spawnedButtons = new List<Button>();
+    private Button spawnedExtendButton;
     private Coroutine countdownRoutine;
     private bool hasActedThisPhase;
 
@@ -64,12 +64,6 @@ public class VotePanel : MonoBehaviour
 
         PlayerTurnController.Instance.OnPhaseChanged += OnPhaseChanged;
         votePanelRoot.SetActive(false);
-
-        if (extendTimeButton != null)
-        {
-            extendTimeButton.onClick.AddListener(ExtendVillageVoteTimeBTN);
-            extendTimeButton.gameObject.SetActive(false);
-        }
     }
 
     private void OnDestroy()
@@ -127,8 +121,6 @@ public class VotePanel : MonoBehaviour
             phaseTitleText.text = GetPhaseTitle(state);
         }
 
-        UpdateExtendTimeButtonVisibility(state);
-
         // Seçenekleri temizleyip yeni faz için baştan oluşturuyoruz
         ShowOptionButtons(state);
 
@@ -137,19 +129,6 @@ public class VotePanel : MonoBehaviour
 
         if (countdownRoutine != null) StopCoroutine(countdownRoutine);
         countdownRoutine = StartCoroutine(CountdownRoutine());
-    }
-
-    // Süre uzatma butonu SADECE köy oylamasında ve SADECE host'a görünür.
-    // Diğer oyuncular bu butonu hiç görmez.
-    private void UpdateExtendTimeButtonVisibility(GameState state)
-    {
-        if (extendTimeButton == null) return;
-
-        Room room = PlayerTurnController.Instance.GetCurrentRoom();
-        bool isHost = room != null && FireBaseDataBase.Instance.CurrentPlayerID == room.HostID;
-        bool shouldShow = state == GameState.Voting && isHost;
-
-        extendTimeButton.gameObject.SetActive(shouldShow);
     }
 
     // Köy oylamasına ekstra süre eklemek için host'un bastığı buton.
@@ -266,6 +245,7 @@ public class VotePanel : MonoBehaviour
             // Köy oylamasında herkes oy kullanabilir, anonimlik gerekmez.
             SetPlayerNameButtons(others);
             AddPassButton();
+            AddExtendTimeButtonIfHost();
         }
         else
         {
@@ -328,6 +308,29 @@ public class VotePanel : MonoBehaviour
         spawnedButtons.Add(newButton);
     }
 
+    // Köy oylamasında, diğer karakter butonlarıyla AYNI prefab'tan, AYNI
+    // container'a, SADECE host'un ekranına "+20" yazan bir buton ekler.
+    // Diğer oyuncular bunu hiç görmez (isHost değilse metot hiçbir şey yapmaz).
+    //
+    // ÖNEMLİ: Bu buton BİLİNÇLİ olarak spawnedButtons listesine EKLENMEZ.
+    // Çünkü host kendi oyunu kullandığında/Geç dediğinde SetButtonsInteractable(false)
+    // çalışıyor — eğer bu listede olsaydı host kendi seçimini yaptıktan SONRA
+    // artık süre uzatamazdı. Böylece host, kendi oyunu kullanmış olsa bile
+    // süre dolana kadar istediği an +20 basabilir.
+    private void AddExtendTimeButtonIfHost()
+    {
+        Room room = PlayerTurnController.Instance.GetCurrentRoom();
+        bool isHost = room != null && FireBaseDataBase.Instance.CurrentPlayerID == room.HostID;
+
+        if (!isHost) return;
+
+        spawnedExtendButton = Instantiate(playerButtonPrefab, playerButtonContainer);
+        spawnedExtendButton.gameObject.SetActive(true);
+        SetButtonLabel(spawnedExtendButton, $"+{Mathf.RoundToInt(extendTimeSeconds)}");
+
+        spawnedExtendButton.onClick.AddListener(ExtendVillageVoteTimeBTN);
+    }
+
     // ÖNEMLİ: GetComponentInChildren, prefabınızdaki metin "empty object" gibi
     // bir ara obje PASİF durumdaysa (includeInactive vermezseniz) hiçbir şey
     // bulamaz ve doğrudan .text yazmaya çalışmak NullReferenceException
@@ -388,6 +391,12 @@ public class VotePanel : MonoBehaviour
             Destroy(btn.gameObject);
         }
         spawnedButtons.Clear();
+
+        if (spawnedExtendButton != null)
+        {
+            Destroy(spawnedExtendButton.gameObject);
+            spawnedExtendButton = null;
+        }
     }
 
     private void ClosePanel()
