@@ -25,7 +25,7 @@ public class BOTManager : MonoBehaviour
 
     private static readonly List<string> SystemBotNames = new List<string>
     {
-        "Talon", "Abuzer", "Fettah",
+        "Gürkan", "Abuzer", "Fettah",
     };
 
     private FireBaseDataBase db;
