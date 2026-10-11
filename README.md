@@ -42,33 +42,134 @@ The project was developed primarily as a technical experiment to explore:
 
 ---
 
-## ⚙️ Setup & Firebase Configuration / Kurulum ve Firebase Yapılandırması
+## ⚙️ Setup & Firebase Configuration
 
-### 🇬🇧 English
-> **Note:** The default Firebase configuration file (`google-services-desktop.json` or `google-services.json`) has been removed from this repository for security reasons.
+This project uses **Firebase Realtime Database** for online multiplayer communication. To run it, you must connect **your own** Firebase project. No server information is included in this repository.
 
-To run and test this project locally, you must provide your own Firebase configuration:
+> [!IMPORTANT]
+> Three things must all point to the **same** Firebase project:
+> 1. the config file (`google-services.json`)
+> 2. the Android package name
+> 3. the database URL written in `FireBaseDataBase.cs`
 
-1. Create a new Firebase project at [Firebase Console](https://console.firebase.google.com/).
-2. Enable **Realtime Database** (or Firestore / Auth depending on your setup).
-3. Download your `google-services-desktop.json` (or `google-services.json`) config file from Project Settings.
-4. Place the file inside the project directory:
-   `Assets/StreamingAssets/google-services-desktop.json`
-5. Build and run the project in Unity.
+<details open>
+<summary><b>🇬🇧 English</b></summary>
 
----
+### Setup
 
-### 🇹🇷 Türkçe
-> **Not:** Güvenlik gerekçeleriyle varsayılan Firebase yapılandırma dosyası (`google-services-desktop.json` veya `google-services.json`) bu depodan kaldırılmıştır.
+1. Create a project in the [Firebase Console](https://console.firebase.google.com/) and enable **Realtime Database**.
+2. Copy your database URL from the top of the Realtime Database page.
+3. Go to **Project settings → General → Your apps** and add an **Android app**. Its package name must exactly match Unity's: `Edit → Project Settings → Player → Other Settings → Package Name`.
+4. Download `google-services.json` and place it at:
+   ```
+   Assets/google-services.json
+   ```
+5. Open `FireBaseDataBase.cs`, find this line in `Awake()` and replace the URL with your own:
+   ```csharp
+   app.Options.DatabaseUrl = new Uri("YOUR_FIREBASE_DATABASE_URL");
+   ```
+6. Set your database [Rules](#database-rules).
+7. Uninstall any old build from your phone, then rebuild and install.
 
-Projeyi yerel ortamınızda çalıştırmak ve test etmek için kendi Firebase projenizi bağlamanız gerekmektedir:
+> [!NOTE]
+> `Assets/StreamingAssets/google-services-desktop.json` is generated **automatically** by the Firebase Unity SDK for the Unity Editor. You do not need to create it manually.
 
-1. [Firebase Console](https://console.firebase.google.com/) üzerinden yeni bir Firebase projesi oluşturun.
-2. Projenizde **Realtime Database** servisini aktif edin.
-3. Proje Ayarları (Project Settings) bölümünden `google-services-desktop.json` (veya `google-services.json`) dosyasını indirin.
-4. Dosyayı projenin şu dizinine yerleştirin:
-   `Assets/StreamingAssets/google-services-desktop.json`
-5. Unity üzerinden projeyi çalıştırın.
+> [!WARNING]
+> Replacing `google-services.json` does **not** update the URL hardcoded in `FireBaseDataBase.cs`. Change it manually.
+
+### Troubleshooting
+
+Works in the Unity Editor but not on a phone, or the lobby is created but nothing appears in Firebase? Check:
+
+- [ ] There is only **one** `google-services.json` in the project (search `google-services` in the Project window).
+- [ ] `package_name` inside `google-services.json` is identical to Unity's Package Name (case, `_` and `.` included).
+- [ ] `project_id` and `firebase_url` in `google-services.json` belong to your current project.
+- [ ] The URL in `FireBaseDataBase.cs` matches your Realtime Database URL exactly.
+- [ ] If you switched projects, delete `Assets/StreamingAssets/google-services-desktop.json` and `Assets/Plugins/Android/FirebaseApp.androidlib` (if present); they are regenerated automatically.
+- [ ] Your Rules allow the write. Denied writes fail **silently** unless you log them.
+- [ ] You uninstalled the old app and rebuilt. If needed, delete the `Library` folder.
+
+To see write errors, log the result, for example in `CreateRoom`:
+
+```csharp
+roomRef.SetRawJsonValueAsync(JsonUtility.ToJson(roomObj)).ContinueWith(task =>
+{
+    if (task.IsFaulted)
+        Debug.LogError("Room write ERROR: " + task.Exception);
+});
+```
+
+On Android, run `adb logcat -s Unity`. A `Permission denied` message means the Rules are blocking the write.
+
+### Database Rules
+
+Configure your Realtime Database rules according to your authentication and access requirements. For **local testing only**, you may temporarily allow open access:
+
+```json
+{ "rules": { ".read": true, ".write": true } }
+```
+
+</details>
+
+<details>
+<summary><b>🇹🇷 Türkçe</b></summary>
+
+### Kurulum
+
+1. [Firebase Console](https://console.firebase.google.com/) üzerinden bir proje oluşturun ve **Realtime Database** servisini etkinleştirin.
+2. Realtime Database sayfasının en üstündeki veritabanı URL'inizi kopyalayın.
+3. **Project settings → General → Your apps** bölümünden bir **Android uygulaması** ekleyin. Paket adı Unity'deki ile birebir aynı olmalı: `Edit → Project Settings → Player → Other Settings → Package Name`.
+4. `google-services.json` dosyasını indirip şu konuma koyun:
+   ```
+   Assets/google-services.json
+   ```
+5. `FireBaseDataBase.cs` dosyasını açın, `Awake()` içindeki şu satırı bulup URL'i kendi adresinizle değiştirin:
+   ```csharp
+   app.Options.DatabaseUrl = new Uri("YOUR_FIREBASE_DATABASE_URL");
+   ```
+6. Veritabanı [kurallarını](#veritabanı-kuralları-rules) ayarlayın.
+7. Telefondaki eski uygulamayı silin, ardından yeniden build alıp kurun.
+
+> [!NOTE]
+> `Assets/StreamingAssets/google-services-desktop.json` dosyasını Firebase Unity SDK, Unity Editor için **otomatik** üretir. Elle oluşturmanıza gerek yoktur.
+
+> [!WARNING]
+> `google-services.json` dosyasını değiştirmek, `FireBaseDataBase.cs` içindeki sabit URL'i **güncellemez**. Elle değiştirmeniz gerekir.
+
+### Sorun Giderme
+
+Unity Editor'de çalışıp telefonda çalışmıyor mu, ya da lobi kuruluyor ama Firebase'e hiçbir şey düşmüyor mu? Kontrol edin:
+
+- [ ] Projede yalnızca **bir** `google-services.json` var (Project penceresinde `google-services` aratın).
+- [ ] `google-services.json` içindeki `package_name`, Unity'deki Package Name ile aynı (büyük/küçük harf, `_` ve `.` dahil).
+- [ ] `google-services.json` içindeki `project_id` ve `firebase_url` mevcut projenize ait.
+- [ ] `FireBaseDataBase.cs` içindeki URL, Realtime Database URL'inizle birebir aynı.
+- [ ] Proje değiştirdiyseniz `Assets/StreamingAssets/google-services-desktop.json` ve varsa `Assets/Plugins/Android/FirebaseApp.androidlib` dosyalarını silin; otomatik yeniden üretilirler.
+- [ ] Rules yazmaya izin veriyor. Reddedilen yazma, loglamazsanız **sessizce** başarısız olur.
+- [ ] Eski uygulamayı silip yeniden build aldınız. Gerekirse `Library` klasörünü silin.
+
+Yazma hatalarını görmek için sonucu loglayın, örneğin `CreateRoom` içinde:
+
+```csharp
+roomRef.SetRawJsonValueAsync(JsonUtility.ToJson(roomObj)).ContinueWith(task =>
+{
+    if (task.IsFaulted)
+        Debug.LogError("Oda yazma HATASI: " + task.Exception);
+});
+```
+
+Android'de `adb logcat -s Unity` komutunu çalıştırın. `Permission denied` mesajı, Rules'un yazmayı engellediği anlamına gelir.
+
+### Veritabanı Kuralları (Rules)
+
+Realtime Database kurallarını kimlik doğrulama ve erişim ihtiyaçlarınıza göre yapılandırın. Yalnızca **yerel test için** geçici olarak açık erişim verebilirsiniz:
+
+```json
+{ "rules": { ".read": true, ".write": true } }
+```
+
+</details>
+
 
 ---
 
